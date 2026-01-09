@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # ETL Pipeline - HealthAI Coach
 
 Pipeline ETL pour la collecte, le nettoyage et le chargement des données nutritionnelles, d'exercices et de profils utilisateurs pour le projet HealthAI Coach.
@@ -120,3 +121,6 @@ Projet MSPR - EPSI Bloc E6.1
 ## 📄 Licence
 
 Ce projet est réalisé dans un cadre pédagogique - EPSI 2026
+=======
+# ETL
+>>>>>>> c43ebb556a046fd23dc3e0737d98043f76250dfb
