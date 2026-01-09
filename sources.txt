@@ -1,0 +1,20 @@
+APIs:
+    Food:
+        https://world.openfoodfacts.org/data
+        https://spoonacular.com/food-api
+        https://www.themealdb.com/api.php
+
+    Sport:
+        https://github.com/ExerciseDB/exercisedb-api
+        https://wger.de/en/software/api
+
+datasets:
+    Food:
+        https://ciqual.anses.fr/
+        https://www.kaggle.com/datasets/adilshamim8/daily-food-and-nutrition-dataset
+        https://www.kaggle.com/datasets/ziya07/diet-recommendations-dataset
+
+    Sports: 
+        https://www.kaggle.com/datasets/valakhorasani/gym-members-exercise-dataset
+        https://www.kaggle.com/datasets/nadeemajeedch/fitness-tracker-dataset
+        https://www.kaggle.com/datasets/jocelyndumlao/personal-metrics-data

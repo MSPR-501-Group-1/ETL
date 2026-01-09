@@ -1,0 +1,17 @@
+# ==============================
+# HealthAI Coach - ETL
+# Requirements Python
+# ==============================
+
+# ETL & Data Processing
+pandas
+numpy
+openpyxl  # Pour lire les fichiers Excel
+python-dotenv
+
+# Database
+psycopg2-binary  # PostgreSQL
+sqlalchemy
+
+# Logging
+loguru
