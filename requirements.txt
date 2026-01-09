@@ -1,17 +1,36 @@
-# ==============================
-# HealthAI Coach - ETL
-# Requirements Python
-# ==============================
+# Web Scraping
+requests==2.31.0
+beautifulsoup4==4.12.3
+lxml==5.1.0
+selenium==4.16.0
 
-# ETL & Data Processing
-pandas
-numpy
-openpyxl  # Pour lire les fichiers Excel
-python-dotenv
+# Data Processing
+pandas==2.2.0
+numpy==1.26.3
 
 # Database
-psycopg2-binary  # PostgreSQL
-sqlalchemy
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.25
+
+# Data Validation
+pydantic==2.5.3
+great-expectations==0.18.8
+
+# Configuration & Environment
+python-dotenv==1.0.0
 
 # Logging
-loguru
+loguru==0.7.2
+
+# Utilities
+python-dateutil==2.8.2
+pytz==2024.1
+
+# Testing
+pytest==7.4.4
+pytest-cov==4.1.0
+
+# Development Tools
+black==24.1.1
+flake8==7.0.0
+isort==5.13.2

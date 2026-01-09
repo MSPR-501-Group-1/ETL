@@ -1,11 +1,12 @@
-# ==============================
 # Python
-# ==============================
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
+env/
+venv/
+ENV/
 build/
 develop-eggs/
 dist/
@@ -22,42 +23,28 @@ wheels/
 .installed.cfg
 *.egg
 
-# Virtual Environment
-venv/
-env/
-ENV/
-.venv
+# Environment variables
+.env
 
-# IDEs
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# Environment variables
-.env
-.env.local
-
-# Logs
-logs/
-*.log
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-
 # Data files
 data/raw/*
 data/processed/*
+data/logs/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
+!data/logs/.gitkeep
 
 # Jupyter Notebook
 .ipynb_checkpoints
 
-# pytest
+# Testing
 .pytest_cache/
 .coverage
 htmlcov/
@@ -65,11 +52,3 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
-
-# Docker
-docker-compose.override.yml
-
-# Temporary files
-tmp/
-temp/
-*.tmp
