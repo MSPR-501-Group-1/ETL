@@ -1,212 +1,170 @@
 """
-Scraper pour récupérer les données d'exercices depuis ExerciseDB (GitHub)
+Scraper to fetch exercise data from ExerciseDB (GitHub)
 Source: https://github.com/yuhonas/free-exercise-db
 
-Ce module permet de télécharger automatiquement une liste d'exercices sportifs
-avec leurs caractéristiques (muscles ciblés, équipement, instructions, etc.)
+This module automatically downloads a list of exercises
+with their characteristics (muscles, equipment, instructions, etc.)
 """
 
-import requests  # Bibliothèque pour faire des requêtes HTTP (télécharger des données depuis internet)
-import time  # Pour gérer les dates et heures
-from pathlib import Path  # Pour manipuler les chemins de fichiers
-from typing import List, Dict, Optional  # Pour définir les types de données (aide au débogage)
-from config.settings import RAW_DATA_DIR, SCRAPING_CONFIG  # Configuration du projet
-from src.utils.logger import setup_logger  # Pour enregistrer les logs (traces d'exécution)
-from src.utils.file_handler import save_to_json, generate_filename  # Pour sauvegarder les fichiers
+import requests
+import time
+from pathlib import Path
+from typing import List, Dict, Optional
+from config.settings import RAW_DATA_DIR, SCRAPING_CONFIG
+from src.utils.logger import setup_logger
+from src.utils.file_handler import save_to_json, generate_filename
 
 
 class ExerciseDBScraper:
     """
-    Classe principale pour récupérer les exercices depuis ExerciseDB
+    Main class to fetch exercises from ExerciseDB
     
-    Fonctionnement:
-    1. Se connecte à l'URL GitHub qui contient les données JSON
-    2. Télécharge la liste complète des exercices
-    3. Extrait les métadonnées (catégories, équipements, etc.)
-    4. Sauvegarde tout dans un fichier JSON local
+    Process:
+    1. Connect to GitHub URL containing JSON data
+    2. Download complete exercise list
+    3. Extract metadata (categories, equipment, etc.)
+    4. Save to local JSON file
     """
     
-    # URL de base où se trouvent les données (fichier JSON public sur GitHub)
     BASE_URL = "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/dist/exercises.json"
     
     def __init__(self):
         """
-        Constructeur : initialise le scraper au démarrage
+        Initialize the scraper
         
-        Crée:
-        - Un logger pour tracer l'exécution (enregistrer ce qui se passe)
-        - Une session HTTP pour faire les requêtes web
-        - Configure un User-Agent (s'identifier comme un navigateur web)
+        Creates:
+        - Logger for execution tracking
+        - HTTP session for web requests
+        - User-Agent configuration
         """
-        # Créer un système de logs avec le nom de la classe
         self.logger = setup_logger(self.__class__.__name__)
-        
-        # Créer une session HTTP (connexion réutilisable pour télécharger des données)
         self.session = requests.Session()
-        
-        # Définir un User-Agent (se faire passer pour un navigateur Chrome sur Windows)
-        # Certains sites bloquent les requêtes sans User-Agent
         self.session.headers.update({
             'User-Agent': SCRAPING_CONFIG['user_agent']
         })
         
     def fetch_exercises(self) -> Optional[List[Dict]]:
         """
-        ÉTAPE 1 : Télécharger tous les exercices depuis l'URL GitHub
+        Download all exercises from GitHub URL
         
-        Processus:
-        1. Fait une requête HTTP GET vers l'URL (comme ouvrir une page web)
-        2. Vérifie que la requête a réussi (code 200)
-        3. Convertit la réponse JSON en liste Python
+        Process:
+        1. Make HTTP GET request to URL
+        2. Verify request succeeded (code 200)
+        3. Convert JSON response to Python list
         
         Returns:
-            List[Dict]: Liste de dictionnaires contenant les exercices
-            None: Si le téléchargement échoue
+            List[Dict]: List of dictionaries containing exercises
+            None: If download fails
         """
-        # Enregistrer dans les logs qu'on commence le téléchargement
-        self.logger.info(f"Téléchargement des exercices depuis {self.BASE_URL}")
+        self.logger.info(f"Downloading exercises from {self.BASE_URL}")
         
         try:
-            # Faire une requête GET (télécharger les données depuis l'URL)
-            # timeout = temps maximum d'attente avant abandon (30 secondes par défaut)
             response = self.session.get(
                 self.BASE_URL,
                 timeout=SCRAPING_CONFIG['timeout']
             )
-            
-            # Vérifier que la requête a réussi (lance une erreur si code != 200)
             response.raise_for_status()
-            
-            # Convertir la réponse JSON en objet Python (liste de dictionnaires)
             exercises = response.json()
-            
-            # Logger le succès avec le nombre d'exercices récupérés
-            self.logger.info(f"Succès : {len(exercises)} exercices téléchargés")
+            self.logger.info(f"Success: {len(exercises)} exercises downloaded")
             return exercises
             
         except requests.exceptions.RequestException as e:
-            # Si une erreur se produit (pas d'internet, URL invalide, timeout...)
-            self.logger.error(f"Échec du téléchargement : {e}")
+            self.logger.error(f"Download failed: {e}")
             return None
     
     def fetch_exercise_categories(self, exercises: List[Dict]) -> Dict[str, List[str]]:
         """
-        ÉTAPE 2 : Extraire les catégories uniques depuis la liste d'exercices
+        Extract unique categories from exercise list
         
-        Cette fonction parcourt tous les exercices et crée des listes de:
-        - Groupes musculaires (bodyParts) : biceps, triceps, abdos, etc.
-        - Équipements (equipment) : haltères, barres, poids du corps, etc.
-        - Types d'exercice (targets) : cardio, force, stretching, etc.
+        Creates lists of:
+        - Muscle groups (bodyParts): biceps, triceps, abs, etc.
+        - Equipment: dumbbells, barbells, bodyweight, etc.
+        - Exercise types (targets): cardio, strength, stretching, etc.
         
         Args:
-            exercises: Liste des exercices téléchargés
+            exercises: List of downloaded exercises
             
         Returns:
-            Dict: Dictionnaire avec 3 clés (bodyParts, equipment, targets)
-                  chacune contenant une liste triée de valeurs uniques
+            Dict: Dictionary with 3 keys (bodyParts, equipment, targets)
+                  each containing sorted list of unique values
         """
-        # Créer 3 ensembles (set) pour stocker les valeurs uniques
-        # Un set = collection qui n'accepte pas les doublons
         categories = {
-            'bodyParts': set(),    # Groupes musculaires
-            'equipment': set(),    # Types d'équipement
-            'targets': set()       # Catégories d'exercices
+            'bodyParts': set(),
+            'equipment': set(),
+            'targets': set()
         }
         
-        # Parcourir chaque exercice pour extraire ses caractéristiques
         for exercise in exercises:
-            # Vérifier si l'exercice a des muscles primaires définis
             if 'primaryMuscles' in exercise and exercise['primaryMuscles']:
-                # Ajouter tous les muscles au set (update = ajouter plusieurs éléments)
                 categories['bodyParts'].update(exercise['primaryMuscles'])
             
-            # Vérifier si l'exercice a un équipement défini
             if 'equipment' in exercise and exercise['equipment']:
-                # Ajouter l'équipement au set (add = ajouter un élément)
                 categories['equipment'].add(exercise['equipment'])
             
-            # Vérifier si l'exercice a une catégorie définie
             if 'category' in exercise and exercise['category']:
-                # Ajouter la catégorie au set
                 categories['targets'].add(exercise['category'])
         
-        # Convertir les sets en listes triées et filtrer les valeurs None
-        # Compréhension de dictionnaire : {clé: valeur transformée pour chaque clé, valeur}
         return {key: sorted([v for v in values if v is not None]) for key, values in categories.items()}
     
     def save_data(self, exercises: List[Dict], filename: Optional[str] = None) -> Path:
         """
-        ÉTAPE 3 : Sauvegarder les données dans un fichier JSON
+        Save data to JSON file
         
-        Crée un fichier JSON avec toutes les données récupérées.
-        Le nom du fichier inclut un timestamp pour tracer les versions.
+        Creates JSON file with all fetched data.
+        Filename includes timestamp for version tracking.
         
         Args:
-            exercises: Données à sauvegarder (dict avec metadata + exercises)
-            filename: Nom du fichier (optionnel, auto-généré si non fourni)
+            exercises: Data to save (dict with metadata + exercises)
+            filename: Filename (optional, auto-generated if not provided)
             
         Returns:
-            Path: Chemin complet vers le fichier créé
+            Path: Full path to created file
         """
-        # Si aucun nom de fichier n'est fourni, en générer un automatiquement
-        # Format: exercisedb_raw_YYYYMMDD_HHMMSS.json
         if filename is None:
             filename = generate_filename('exercisedb_raw')
         
-        # Construire le chemin complet : dossier data/raw/ + nom du fichier
         filepath = RAW_DATA_DIR / filename
-        
-        # Sauvegarder les données au format JSON (format texte lisible)
         save_to_json(exercises, filepath)
-        
-        # Logger l'emplacement du fichier sauvegardé
-        self.logger.info(f"Sauvegarde de {len(exercises)} exercices dans {filepath}")
+        self.logger.info(f"Saved {len(exercises)} exercises to {filepath}")
         return filepath
     
     def run(self) -> Optional[Path]:
         """
-        MÉTHODE PRINCIPALE : Exécute le pipeline complet de scraping
+        Execute complete scraping pipeline
         
-        Cette méthode orchestre toutes les étapes dans l'ordre:
-        1. Télécharger les exercices depuis l'URL
-        2. Extraire les métadonnées (catégories)
-        3. Structurer les données avec les métadonnées
-        4. Sauvegarder dans un fichier JSON
+        Steps:
+        1. Download exercises from URL
+        2. Extract metadata (categories)
+        3. Structure data with metadata
+        4. Save to JSON file
         
         Returns:
-            Path: Chemin vers le fichier créé
-            None: Si une erreur s'est produite
+            Path: Path to created file
+            None: If error occurred
         """
-        self.logger.info("Démarrage du pipeline de scraping ExerciseDB")
+        self.logger.info("Starting ExerciseDB scraping pipeline")
         
-        # ÉTAPE 1 : Télécharger les données depuis GitHub
         exercises = self.fetch_exercises()
         if exercises is None:
-            # Si le téléchargement échoue, arrêter le processus
-            self.logger.error("Échec du scraping - aucune donnée récupérée")
+            self.logger.error("Scraping failed - no data retrieved")
             return None
         
-        # ÉTAPE 2 : Extraire les catégories uniques (muscles, équipements, types)
         categories = self.fetch_exercise_categories(exercises)
-        self.logger.info(f"Catégories trouvées : {categories}")
+        self.logger.info(f"Categories found: {categories}")
         
-        # ÉTAPE 3 : Préparer la structure finale avec métadonnées + données
-        # Cette structure facilite la traçabilité et l'analyse ultérieure
         data = {
             'metadata': {
                 'source': 'ExerciseDB',
                 'url': self.BASE_URL,
                 'total_exercises': len(exercises),
                 'categories': categories,
-                'scraped_at': time.strftime('%Y-%m-%d %H:%M:%S')  # Date et heure du scraping
+                'scraped_at': time.strftime('%Y-%m-%d %H:%M:%S')
             },
-            'exercises': exercises  # Liste complète des exercices
+            'exercises': exercises
         }
         
-        # ÉTAPE 4 : Sauvegarder dans un fichier JSON
         filepath = self.save_data(data)
-        
-        self.logger.info("Scraping ExerciseDB terminé avec succès")
+        self.logger.info("ExerciseDB scraping completed successfully")
         return filepath
 
 

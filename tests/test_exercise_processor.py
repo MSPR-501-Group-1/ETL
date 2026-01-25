@@ -1,8 +1,8 @@
 """
-Tests unitaires pour le module ExerciseProcessor
+Unit tests for ExerciseProcessor module
 
-Ce fichier teste toutes les fonctions de transformation et de validation
-du processeur d'exercices.
+Tests all transformation and validation functions
+of the exercise processor.
 """
 
 import pytest
@@ -13,7 +13,7 @@ from src.processors.exercise_processor import ExerciseProcessor
 
 @pytest.fixture
 def sample_exercise_data():
-    """Fixture pour créer des données d'exercice de test"""
+    """Fixture to create test exercise data"""
     return [
         {
             "name": "Push-Up",
@@ -46,7 +46,7 @@ def sample_exercise_data():
 
 @pytest.fixture
 def processor():
-    """Fixture pour créer une instance du processeur"""
+    """Fixture to create processor instance"""
     return ExerciseProcessor()
 
 

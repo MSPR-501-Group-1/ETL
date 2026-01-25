@@ -1,101 +1,124 @@
 """
-Script principal pour orchestrer tous les processeurs de données
+Main script to orchestrate all data processors
 
-Ce fichier permet d'exécuter tous les pipelines de traitement de manière séquentielle:
-1. Traitement des exercices ExerciseDB
-2. Traitement des données nutritionnelles (à venir)
-3. Traitement des profils utilisateurs (à venir)
+This file executes all processing pipelines sequentially:
+1. Process ExerciseDB exercises
+2. Process nutrition data (coming soon)
+3. Process user profiles (coming soon)
 
-Usage : python -m src.processors.run_processing
+Usage: python -m src.processors.run_processing
 """
 
 from pathlib import Path
 from src.processors.exercise_processor import ExerciseProcessor
+from src.processors.gym_members_processor import GymMembersProcessor
 from src.utils.logger import setup_logger
 from config.settings import RAW_DATA_DIR
 
 
 def process_exercisedb():
     """
-    Traite les données ExerciseDB
+    Process ExerciseDB data
     
     Returns:
-        Dict des fichiers exportés ou None si échec
+        Dict of exported files or None if failed
     """
     logger = setup_logger("ProcessingPipeline")
-    logger.info("\n[1/1] Traitement des exercices ExerciseDB...")
+    logger.info("\n[1/2] Processing ExerciseDB exercises...")
     
     try:
         processor = ExerciseProcessor()
         
-        # Trouver le fichier brut le plus récent
         raw_files = list(RAW_DATA_DIR.glob('exercisedb_raw_*.json'))
         
         if not raw_files:
-            logger.error("Aucun fichier exercisedb_raw_*.json trouvé")
-            logger.info("💡 Exécutez d'abord: python -m src.scrapers.exercisedb_scraper")
+            logger.error("No exercisedb_raw_*.json file found")
+            logger.info("💡 Run first: python -m src.scrapers.exercisedb_scraper")
             return None
         
-        # Prendre le fichier le plus récent
         latest_file = sorted(raw_files, key=lambda p: p.stat().st_mtime, reverse=True)[0]
-        logger.info(f"Fichier source: {latest_file.name}")
+        logger.info(f"Source file: {latest_file.name}")
         
-        # Exécuter le traitement
         exported = processor.run(latest_file, output_format='both')
         
         return exported
         
     except Exception as e:
-        logger.error(f"Échec du traitement ExerciseDB : {e}", exc_info=True)
+        logger.error(f"ExerciseDB processing failed: {e}", exc_info=True)
+        return None
+
+
+def process_gym_members():
+    """
+    Process Gym Members data from Kaggle
+    
+    Returns:
+        Dict of exported files or None if failed
+    """
+    logger = setup_logger("ProcessingPipeline")
+    logger.info("\n[2/2] Processing Gym Members dataset...")
+    
+    try:
+        processor = GymMembersProcessor()
+        
+        kaggle_dir = RAW_DATA_DIR / 'kaggle' / 'gym-members-exercise-dataset'
+        
+        if not kaggle_dir.exists():
+            logger.error(f"Kaggle gym members directory not found: {kaggle_dir}")
+            logger.info("💡 Run first: python -m src.scrapers.kaggle_scraper")
+            return None
+        
+        csv_files = list(kaggle_dir.glob('*.csv'))
+        
+        if not csv_files:
+            logger.error("No CSV file found in gym members directory")
+            return None
+        
+        latest_file = csv_files[0]
+        logger.info(f"Source file: {latest_file.name}")
+        
+        exported = processor.run(latest_file, output_format='both')
+        
+        return exported
+        
+    except Exception as e:
+        logger.error(f"Gym Members processing failed: {e}", exc_info=True)
         return None
 
 
 def main():
     """
-    Fonction principale : lance tous les processeurs dans l'ordre
+    Main function: run all processors in order
     """
     logger = setup_logger("ProcessingPipeline")
     
-    # Afficher un en-tête visuel
     logger.info("=" * 60)
-    logger.info("Démarrage du Pipeline de Traitement de Données")
+    logger.info("Starting Data Processing Pipeline")
     logger.info("=" * 60)
     
-    # Dictionnaire pour stocker les résultats
     results = {}
     
-    # ========================================
-    # ÉTAPE 1 : Traiter les exercices ExerciseDB
-    # ========================================
     exercisedb_result = process_exercisedb()
     results['exercisedb'] = exercisedb_result
     
-    # ========================================
-    # TODO : Ajouter d'autres processeurs ici
-    # ========================================
-    # results['nutrition'] = process_nutrition()
-    # results['gym_members'] = process_gym_members()
-    # results['fitness_tracker'] = process_fitness_tracker()
+    gym_members_result = process_gym_members()
+    results['gym_members'] = gym_members_result
     
-    # ========================================
-    # Afficher le résumé final
-    # ========================================
     logger.info("\n" + "=" * 60)
-    logger.info("Résumé du Pipeline de Traitement")
+    logger.info("Processing Pipeline Summary")
     logger.info("=" * 60)
     
     for name, result in results.items():
-        status = "✅ SUCCÈS" if result else "❌ ÉCHEC"
+        status = "✅ SUCCESS" if result else "❌ FAILED"
         logger.info(f"{name}: {status}")
         
         if result and isinstance(result, dict):
             for format_type, filepath in result.items():
                 logger.info(f"  → {format_type.upper()}: {filepath}")
     
-    # Calculer le nombre de sources traitées avec succès
     successful = sum(1 for r in results.values() if r is not None)
     total = len(results)
-    logger.info(f"\nTotal : {successful}/{total} sources traitées avec succès")
+    logger.info(f"\nTotal: {successful}/{total} sources processed successfully")
     
     return results
 

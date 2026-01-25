@@ -1,12 +1,12 @@
 """
-Processor pour nettoyer et transformer les données d'exercices ExerciseDB
+Processor to clean and transform ExerciseDB exercise data
 
-Ce module applique les transformations suivantes:
-1. Validation de la structure des données
-2. Nettoyage des champs (normalisation, gestion des valeurs nulles)
-3. Enrichissement des données (calcul de scores, catégorisation)
-4. Déduplication et cohérence
-5. Export au format exploitable
+Applies following transformations:
+1. Data structure validation
+2. Field cleaning (normalization, null handling)
+3. Data enrichment (score calculation, categorization)
+4. Deduplication and consistency
+5. Export to usable format
 """
 
 import pandas as pd
@@ -22,18 +22,18 @@ from config.settings import RAW_DATA_DIR, PROCESSED_DATA_DIR
 
 class ExerciseProcessor:
     """
-    Processeur pour nettoyer et transformer les données d'exercices
+    Processor to clean and transform exercise data
     
-    Pipeline de transformation:
-    1. Chargement des données brutes
-    2. Validation de la structure
-    3. Nettoyage et normalisation
-    4. Enrichissement
-    5. Export des données propres
+    Transformation pipeline:
+    1. Load raw data
+    2. Structure validation
+    3. Cleaning and normalization
+    4. Enrichment
+    5. Export clean data
     """
     
     def __init__(self):
-        """Initialise le processeur et le système de logs"""
+        """Initialize processor and logging system"""
         self.logger = setup_logger(self.__class__.__name__)
         self.stats = {
             'total_exercises': 0,
@@ -45,77 +45,65 @@ class ExerciseProcessor:
     
     def load_raw_data(self, filepath: Path) -> Tuple[Dict, pd.DataFrame]:
         """
-        Charge les données brutes depuis un fichier JSON
+        Load raw data from JSON file
         
         Args:
-            filepath: Chemin vers le fichier JSON brut
+            filepath: Path to raw JSON file
             
         Returns:
-            Tuple contenant (metadata, DataFrame des exercices)
+            Tuple containing (metadata, exercises DataFrame)
         """
-        self.logger.info(f"Chargement des données depuis {filepath}")
+        self.logger.info(f"Loading data from {filepath}")
         
-        # Charger le JSON complet
         raw_data = load_from_json(filepath)
-        
-        # Extraire les métadonnées et les exercices
         metadata = raw_data.get('metadata', {})
         exercises = raw_data.get('exercises', [])
-        
-        # Convertir en DataFrame pour faciliter la manipulation
         df = pd.DataFrame(exercises)
         
         self.stats['total_exercises'] = len(df)
-        self.logger.info(f"{len(df)} exercices chargés")
+        self.logger.info(f"{len(df)} exercises loaded")
         
         return metadata, df
     
     def validate_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Valide la structure et la cohérence des données
+        Validate data structure and consistency
         
-        Règles de validation:
-        - Champs obligatoires: name, id, category, equipment, primaryMuscles
-        - Format correct pour les listes et les chaînes
-        - Valeurs cohérentes (level, category, equipment dans listes autorisées)
+        Validation rules:
+        - Required fields: name, id, category, equipment, primaryMuscles
+        - Correct format for lists and strings
+        - Consistent values (level, category, equipment in allowed lists)
         
         Args:
-            df: DataFrame des exercices
+            df: Exercises DataFrame
             
         Returns:
-            DataFrame avec uniquement les exercices valides
+            DataFrame with only valid exercises
         """
-        self.logger.info("Validation des données...")
+        self.logger.info("Validating data...")
         
         initial_count = len(df)
-        
-        # 1. Vérifier les champs obligatoires
         required_fields = ['name', 'id', 'category', 'equipment', 'primaryMuscles']
         
         for field in required_fields:
             if field not in df.columns:
-                self.logger.warning(f"Champ obligatoire manquant: {field}")
+                self.logger.warning(f"Missing required field: {field}")
                 df[field] = None
         
-        # 2. Supprimer les lignes avec des champs obligatoires vides
         mask = df['name'].notna() & df['id'].notna()
         df = df[mask].copy()
         
-        # 3. Valider les listes (primaryMuscles, secondaryMuscles, instructions)
         for list_field in ['primaryMuscles', 'secondaryMuscles', 'instructions']:
             if list_field in df.columns:
-                # Convertir en liste vide si None
                 df[list_field] = df[list_field].apply(
                     lambda x: x if isinstance(x, list) else []
                 )
         
-        # 4. Valider les niveaux de difficulté
         valid_levels = ['beginner', 'intermediate', 'expert']
         df['level'] = df['level'].apply(
             lambda x: x if x in valid_levels else 'intermediate'
         )
         
-        # 5. Valider les catégories
         valid_categories = [
             'cardio', 'olympic weightlifting', 'plyometrics',
             'powerlifting', 'strength', 'stretching', 'strongman'
@@ -128,35 +116,33 @@ class ExerciseProcessor:
         self.stats['invalid_exercises'] = initial_count - len(df)
         
         self.logger.info(
-            f"Validation terminée: {self.stats['valid_exercises']} valides, "
-            f"{self.stats['invalid_exercises']} rejetés"
+            f"Validation complete: {self.stats['valid_exercises']} valid, "
+            f"{self.stats['invalid_exercises']} rejected"
         )
         
         return df
     
     def clean_text_fields(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Nettoie et normalise les champs textuels
+        Clean and normalize text fields
         
-        Opérations:
-        - Trim des espaces
-        - Normalisation de la casse
-        - Suppression des caractères spéciaux indésirables
+        Operations:
+        - Trim whitespace
+        - Normalize case
+        - Remove unwanted special characters
         
         Args:
-            df: DataFrame des exercices
+            df: Exercises DataFrame
             
         Returns:
-            DataFrame avec champs texte nettoyés
+            DataFrame with cleaned text fields
         """
-        self.logger.info("Nettoyage des champs textuels...")
+        self.logger.info("Cleaning text fields...")
         
-        # Champs à nettoyer
         text_fields = ['name', 'equipment', 'force', 'mechanic', 'category']
         
         for field in text_fields:
             if field in df.columns:
-                # Trim et normalisation
                 df[field] = df[field].apply(
                     lambda x: x.strip().lower() if isinstance(x, str) else x
                 )
@@ -166,22 +152,21 @@ class ExerciseProcessor:
     
     def normalize_muscle_groups(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Normalise et enrichit les groupes musculaires
+        Normalize and enrich muscle groups
         
-        Opérations:
-        - Standardisation des noms de muscles
-        - Ajout d'une colonne 'all_muscles' combinant primaires + secondaires
-        - Comptage du nombre de muscles ciblés
+        Operations:
+        - Standardize muscle names
+        - Add 'all_muscles' column combining primary + secondary
+        - Count targeted muscles
         
         Args:
-            df: DataFrame des exercices
+            df: Exercises DataFrame
             
         Returns:
-            DataFrame enrichi
+            Enriched DataFrame
         """
-        self.logger.info("Normalisation des groupes musculaires...")
+        self.logger.info("Normalizing muscle groups...")
         
-        # Mapping pour standardiser les noms de muscles
         muscle_mapping = {
             'abs': 'abdominals',
             'quads': 'quadriceps',
@@ -190,25 +175,21 @@ class ExerciseProcessor:
         }
         
         def normalize_muscle_list(muscles):
-            """Normalise une liste de muscles"""
+            """Normalize muscle list"""
             if not isinstance(muscles, list):
                 return []
             return [muscle_mapping.get(m.lower(), m.lower()) for m in muscles]
         
-        # Normaliser les listes
         df['primaryMuscles'] = df['primaryMuscles'].apply(normalize_muscle_list)
         df['secondaryMuscles'] = df['secondaryMuscles'].apply(normalize_muscle_list)
         
-        # Créer une colonne combinée de tous les muscles
         df['all_muscles'] = df.apply(
             lambda row: list(set(row['primaryMuscles'] + row['secondaryMuscles'])),
             axis=1
         )
         
-        # Compter le nombre de muscles ciblés
         df['muscle_count'] = df['all_muscles'].apply(len)
         
-        # Déterminer si c'est un exercice composé ou d'isolation
         df['exercise_type'] = df['muscle_count'].apply(
             lambda x: 'compound' if x > 2 else 'isolation'
         )
@@ -217,44 +198,40 @@ class ExerciseProcessor:
     
     def enrich_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Enrichit les données avec des champs calculés
+        Enrich data with calculated fields
         
-        Ajouts:
-        - Difficulté numérique (1-3)
-        - Score de complexité basé sur les instructions
-        - Nécessite équipement (booléen)
-        - Catégorie principale de mouvement
+        Additions:
+        - Numerical difficulty (1-3)
+        - Complexity score based on instructions
+        - Requires equipment (boolean)
+        - Main movement category
         
         Args:
-            df: DataFrame des exercices
+            df: Exercises DataFrame
             
         Returns:
-            DataFrame enrichi
+            Enriched DataFrame
         """
-        self.logger.info("Enrichissement des données...")
+        self.logger.info("Enriching data...")
         
-        # 1. Convertir le niveau en score numérique
         level_scores = {'beginner': 1, 'intermediate': 2, 'expert': 3}
         df['difficulty_score'] = df['level'].map(level_scores)
         
-        # 2. Calculer un score de complexité basé sur le nombre d'instructions
         df['instruction_count'] = df['instructions'].apply(len)
         df['complexity_score'] = df.apply(
             lambda row: row['difficulty_score'] + (row['instruction_count'] / 10),
             axis=1
         )
         
-        # 3. Déterminer si l'exercice nécessite de l'équipement
         df['requires_equipment'] = df['equipment'].apply(
             lambda x: x not in ['body only', 'none', None]
         )
         
-        # 4. Catégoriser par type de mouvement
         push_indicators = ['push', 'press', 'chest', 'triceps', 'shoulders']
         pull_indicators = ['pull', 'row', 'back', 'biceps', 'lats']
         
         def categorize_movement(row):
-            """Catégorise le type de mouvement"""
+            """Categorize movement type"""
             name_lower = row['name'].lower() if isinstance(row['name'], str) else ''
             
             if any(word in name_lower for word in push_indicators):
@@ -272,44 +249,39 @@ class ExerciseProcessor:
     
     def remove_duplicates(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Supprime les exercices en double
+        Remove duplicate exercises
         
-        Stratégie:
-        - Identifier les doublons par 'id' ou 'name'
-        - Conserver la version la plus complète
+        Strategy:
+        - Identify duplicates by 'id' or 'name'
+        - Keep most complete version
         
         Args:
-            df: DataFrame des exercices
+            df: Exercises DataFrame
             
         Returns:
-            DataFrame dédupliqué
+            Deduplicated DataFrame
         """
-        self.logger.info("Suppression des doublons...")
+        self.logger.info("Removing duplicates...")
         
         initial_count = len(df)
-        
-        # Supprimer les doublons basés sur l'ID (priorité absolue)
         df = df.drop_duplicates(subset=['id'], keep='first')
-        
-        # Supprimer les doublons basés sur le nom (cas où ID différent mais nom identique)
         df = df.drop_duplicates(subset=['name'], keep='first')
         
         self.stats['duplicates_removed'] = initial_count - len(df)
-        
-        self.logger.info(f"{self.stats['duplicates_removed']} doublons supprimés")
+        self.logger.info(f"{self.stats['duplicates_removed']} duplicates removed")
         
         return df
     
     def add_metadata_columns(self, df: pd.DataFrame, metadata: Dict) -> pd.DataFrame:
         """
-        Ajoute des colonnes de métadonnées pour la traçabilité
+        Add metadata columns for traceability
         
         Args:
-            df: DataFrame des exercices
-            metadata: Dictionnaire de métadonnées
+            df: Exercises DataFrame
+            metadata: Metadata dictionary
             
         Returns:
-            DataFrame avec métadonnées
+            DataFrame with metadata
         """
         df['data_source'] = metadata.get('source', 'ExerciseDB')
         df['scraped_at'] = metadata.get('scraped_at', datetime.now().isoformat())
@@ -319,10 +291,10 @@ class ExerciseProcessor:
     
     def get_processing_stats(self) -> Dict:
         """
-        Retourne les statistiques de traitement
+        Return processing statistics
         
         Returns:
-            Dictionnaire des statistiques
+            Statistics dictionary
         """
         return self.stats
     
@@ -333,30 +305,26 @@ class ExerciseProcessor:
         output_format: str = 'both'
     ) -> Dict[str, Path]:
         """
-        Exporte les données traitées en JSON et/ou CSV
+        Export processed data to JSON and/or CSV
         
         Args:
-            df: DataFrame des exercices traités
-            metadata: Métadonnées à inclure
-            output_format: 'json', 'csv' ou 'both'
+            df: Processed exercises DataFrame
+            metadata: Metadata to include
+            output_format: 'json', 'csv' or 'both'
             
         Returns:
-            Dictionnaire des chemins des fichiers créés
+            Dictionary of created file paths
         """
-        self.logger.info(f"Export des données au format {output_format}...")
+        self.logger.info(f"Exporting data in {output_format} format...")
         
-        # Créer le dossier de sortie
         PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
-        
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         exported_files = {}
         
-        # Export JSON
         if output_format in ['json', 'both']:
             json_filename = f'exercises_processed_{timestamp}.json'
             json_filepath = PROCESSED_DATA_DIR / json_filename
             
-            # Préparer les données avec métadonnées
             output_data = {
                 'metadata': {
                     **metadata,
@@ -369,17 +337,14 @@ class ExerciseProcessor:
             
             save_to_json(output_data, json_filepath)
             exported_files['json'] = json_filepath
-            self.logger.info(f"JSON sauvegardé: {json_filepath}")
+            self.logger.info(f"JSON saved: {json_filepath}")
         
-        # Export CSV
         if output_format in ['csv', 'both']:
             csv_filename = f'exercises_processed_{timestamp}.csv'
             csv_filepath = PROCESSED_DATA_DIR / csv_filename
             
-            # Préparer le DataFrame pour CSV (aplatir les listes)
             df_csv = df.copy()
             
-            # Convertir les listes en chaînes séparées par des virgules
             list_columns = ['primaryMuscles', 'secondaryMuscles', 'all_muscles', 'instructions', 'images']
             for col in list_columns:
                 if col in df_csv.columns:
@@ -389,95 +354,74 @@ class ExerciseProcessor:
             
             save_to_csv(df_csv, csv_filepath)
             exported_files['csv'] = csv_filepath
-            self.logger.info(f"CSV sauvegardé: {csv_filepath}")
+            self.logger.info(f"CSV saved: {csv_filepath}")
         
         return exported_files
     
     def run(self, input_file: Path, output_format: str = 'both') -> Dict[str, Path]:
         """
-        Exécute le pipeline complet de traitement
+        Execute complete processing pipeline
         
         Pipeline:
-        1. Chargement des données brutes
+        1. Load raw data
         2. Validation
-        3. Nettoyage
-        4. Normalisation
-        5. Enrichissement
-        6. Déduplication
+        3. Cleaning
+        4. Normalization
+        5. Enrichment
+        6. Deduplication
         7. Export
         
         Args:
-            input_file: Chemin vers le fichier JSON brut
-            output_format: Format d'export ('json', 'csv', 'both')
+            input_file: Path to raw JSON file
+            output_format: Export format ('json', 'csv', 'both')
             
         Returns:
-            Dictionnaire des fichiers exportés
+            Dictionary of exported files
         """
         self.logger.info("=" * 60)
-        self.logger.info("Démarrage du pipeline de traitement ExerciseDB")
+        self.logger.info("Starting ExerciseDB processing pipeline")
         self.logger.info("=" * 60)
         
         try:
-            # 1. Chargement
             metadata, df = self.load_raw_data(input_file)
-            
-            # 2. Validation
             df = self.validate_data(df)
-            
-            # 3. Nettoyage
             df = self.clean_text_fields(df)
-            
-            # 4. Normalisation des muscles
             df = self.normalize_muscle_groups(df)
-            
-            # 5. Enrichissement
             df = self.enrich_data(df)
-            
-            # 6. Déduplication
             df = self.remove_duplicates(df)
-            
-            # 7. Ajout métadonnées
             df = self.add_metadata_columns(df, metadata)
-            
-            # 8. Export
             exported_files = self.export_processed_data(df, metadata, output_format)
             
-            # Afficher les statistiques
             self.logger.info("\n" + "=" * 60)
-            self.logger.info("Statistiques de traitement")
+            self.logger.info("Processing Statistics")
             self.logger.info("=" * 60)
             for key, value in self.stats.items():
                 self.logger.info(f"{key}: {value}")
             
-            self.logger.info("\n✅ Pipeline de traitement terminé avec succès")
+            self.logger.info("\n✅ Processing pipeline completed successfully")
             
             return exported_files
             
         except Exception as e:
-            self.logger.error(f"❌ Erreur lors du traitement : {e}", exc_info=True)
+            self.logger.error(f"❌ Error during processing: {e}", exc_info=True)
             raise
 
 
-# Script exécutable
 if __name__ == "__main__":
-    # Exemple d'utilisation
     processor = ExerciseProcessor()
     
-    # Utiliser le fichier le plus récent dans raw/
     raw_files = list(RAW_DATA_DIR.glob('exercisedb_raw_*.json'))
     
     if raw_files:
-        # Trier par date de modification (le plus récent en premier)
         latest_file = sorted(raw_files, key=lambda p: p.stat().st_mtime, reverse=True)[0]
         
-        print(f"\n📁 Fichier source: {latest_file.name}")
+        print(f"\n📁 Source file: {latest_file.name}")
         
-        # Exécuter le traitement
         exported = processor.run(latest_file, output_format='both')
         
-        print("\n📤 Fichiers exportés:")
+        print("\n📤 Exported files:")
         for format_type, filepath in exported.items():
             print(f"  {format_type.upper()}: {filepath}")
     else:
-        print("❌ Aucun fichier brut trouvé dans data/raw/")
-        print("💡 Exécutez d'abord: python -m src.scrapers.exercisedb_scraper")
+        print("❌ No raw file found in data/raw/")
+        print("💡 Run first: python -m src.scrapers.exercisedb_scraper")

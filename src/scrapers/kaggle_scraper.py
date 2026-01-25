@@ -1,117 +1,99 @@
 """
-Scraper pour télécharger des datasets depuis Kaggle en utilisant leur API officielle
+Scraper to download datasets from Kaggle using their official API
 
-IMPORTANT : Nécessite une authentification Kaggle
-Configuration requise :
-1. Créer un compte sur kaggle.com
-2. Obtenir votre token API depuis https://www.kaggle.com/account
-3. Placer le fichier kaggle.json dans ~/.kaggle/ (Mac/Linux) ou %USERPROFILE%\.kaggle\ (Windows)
+IMPORTANT: Requires Kaggle authentication
+Required configuration:
+1. Create account on kaggle.com
+2. Get your API token from https://www.kaggle.com/account
+3. Place kaggle.json file in ~/.kaggle/ (Mac/Linux) or %USERPROFILE%\.kaggle\ (Windows)
 
-Ce scraper utilise la ligne de commande Kaggle (CLI) pour télécharger les datasets
+This scraper uses Kaggle CLI to download datasets
 """
 
-import subprocess  # Pour exécuter des commandes système (kaggle CLI)
-import shutil  # Pour vérifier si des programmes sont installés
-from pathlib import Path  # Pour manipuler les chemins de fichiers
-from typing import Optional  # Pour définir les types de retour
-from config.settings import RAW_DATA_DIR  # Dossier où sauvegarder les données
-from src.utils.logger import setup_logger  # Pour les logs
+import subprocess
+import shutil
+from pathlib import Path
+from typing import Optional
+from config.settings import RAW_DATA_DIR
+from src.utils.logger import setup_logger
 
 
 class KaggleDatasetScraper:
     """
-    Classe pour télécharger automatiquement des datasets depuis Kaggle
+    Class to automatically download datasets from Kaggle
     
-    Fonctionnement:
-    - Utilise la CLI Kaggle (outil en ligne de commande officiel)
-    - Télécharge et dézippe automatiquement les fichiers
-    - Organise les datasets dans des sous-dossiers
+    Features:
+    - Uses Kaggle CLI (official command-line tool)
+    - Downloads and unzips files automatically
+    - Organizes datasets in subfolders
     
-    Prérequis techniques:
-    1. Installer kaggle CLI : pip install kaggle
-    2. Configurer les credentials (fichier kaggle.json avec votre clé API)
-    3. Le fichier doit être dans : ~/.kaggle/kaggle.json
+    Prerequisites:
+    1. Install kaggle CLI: pip install kaggle
+    2. Configure credentials (kaggle.json file with your API key)
+    3. File must be in: ~/.kaggle/kaggle.json
     """
     
     def __init__(self):
         """
-        Constructeur : initialise le scraper et vérifie la configuration
+        Initialize scraper and verify configuration
         """
-        # Créer le système de logs
         self.logger = setup_logger(self.__class__.__name__)
-        
-        # Vérifier que la CLI Kaggle est installée et accessible
         self.check_kaggle_cli()
     
     def check_kaggle_cli(self) -> bool:
         """
-        Vérifier si la CLI Kaggle est installée et disponible sur le système
-        
-        Cette fonction cherche la commande 'kaggle' dans le PATH système.
-        Si elle n'est pas trouvée, affiche un avertissement.
+        Check if Kaggle CLI is installed and available on system
         
         Returns:
-            bool: True si kaggle CLI est trouvée, False sinon
+            bool: True if kaggle CLI is found, False otherwise
         """
-        # shutil.which() cherche un programme dans le PATH système
-        # Équivalent de taper 'where kaggle' dans le terminal Windows
         if not shutil.which('kaggle'):
-            self.logger.warning("CLI Kaggle non trouvée. Installez avec : pip install kaggle")
+            self.logger.warning("Kaggle CLI not found. Install with: pip install kaggle")
             return False
         return True
     
     def download_dataset(self, dataset_slug: str, output_dir: Optional[Path] = None) -> Optional[Path]:
         """
-        Télécharger un dataset depuis Kaggle en utilisant la ligne de commande
+        Download dataset from Kaggle using command line
         
-        Le dataset_slug est l'identifiant unique du dataset sur Kaggle.
-        On le trouve dans l'URL : kaggle.com/datasets/USERNAME/DATASET-NAME
+        Dataset slug is unique identifier on Kaggle.
+        Found in URL: kaggle.com/datasets/USERNAME/DATASET-NAME
         
         Args:
-            dataset_slug: Identifiant Kaggle (format: 'username/dataset-name')
-            output_dir: Dossier de destination (créé automatiquement si inexistant)
+            dataset_slug: Kaggle identifier (format: 'username/dataset-name')
+            output_dir: Destination folder (created automatically if not exists)
             
         Returns:
-            Path: Chemin vers le dossier contenant les fichiers téléchargés
-            None: Si le téléchargement échoue
+            Path: Path to folder containing downloaded files
+            None: If download fails
             
-        Exemple:
+        Example:
             download_dataset('adilshamim8/daily-food-and-nutrition-dataset')
         """
-        # Si aucun dossier de destination n'est spécifié, en créer un automatiquement
-        # Structure: data/raw/kaggle/NOM-DU-DATASET/
         if output_dir is None:
-            # Extraire le nom du dataset depuis le slug (partie après le /)
             dataset_name = dataset_slug.split('/')[-1]
             output_dir = RAW_DATA_DIR / 'kaggle' / dataset_name
         
-        # Créer le dossier (et les dossiers parents) s'il n'existe pas
-        # exist_ok=True évite une erreur si le dossier existe déjà
         output_dir.mkdir(parents=True, exist_ok=True)
-        
-        self.logger.info(f"Téléchargement du dataset Kaggle : {dataset_slug}")
+        self.logger.info(f"Downloading Kaggle dataset: {dataset_slug}")
         
         try:
-            # Exécuter la commande kaggle CLI dans un sous-processus
-            # Équivalent de taper: kaggle datasets download -d SLUG -p DOSSIER --unzip
             result = subprocess.run(
                 ['kaggle', 'datasets', 'download', '-d', dataset_slug, '-p', str(output_dir), '--unzip'],
-                capture_output=True,  # Capturer la sortie (stdout et stderr)
-                text=True,            # Retourner du texte (pas des bytes)
-                check=True            # Lever une erreur si la commande échoue
+                capture_output=True,
+                text=True,
+                check=True
             )
             
-            self.logger.info(f"Téléchargement réussi dans {output_dir}")
-            self.logger.debug(result.stdout)  # Logger la sortie détaillée
+            self.logger.info(f"Download successful to {output_dir}")
+            self.logger.debug(result.stdout)
             return output_dir
             
         except subprocess.CalledProcessError as e:
-            # Erreur lors de l'exécution de la commande (credentials invalides, dataset introuvable...)
-            self.logger.error(f"Échec du téléchargement : {e.stderr}")
+            self.logger.error(f"Download failed: {e.stderr}")
             return None
         except FileNotFoundError:
-            # La commande 'kaggle' n'a pas été trouvée (pas installée)
-            self.logger.error("CLI Kaggle non trouvée. Installez avec : pip install kaggle")
+            self.logger.error("Kaggle CLI not found. Install with: pip install kaggle")
             return None
     
     def download_nutrition_dataset(self) -> Optional[Path]:

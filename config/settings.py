@@ -8,15 +8,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Project root directory
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Data directories
 RAW_DATA_DIR = BASE_DIR / os.getenv('RAW_DATA_PATH', 'data/raw')
 PROCESSED_DATA_DIR = BASE_DIR / os.getenv('PROCESSED_DATA_PATH', 'data/processed')
 LOGS_DIR = BASE_DIR / 'data' / 'logs'
 
-# Scraping settings
 SCRAPING_CONFIG = {
     'user_agent': os.getenv('USER_AGENT', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'),
     'request_delay': int(os.getenv('REQUEST_DELAY', 1)),
@@ -24,6 +21,5 @@ SCRAPING_CONFIG = {
     'timeout': int(os.getenv('TIMEOUT', 30))
 }
 
-# Logging settings
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
 LOG_FILE = BASE_DIR / os.getenv('LOG_FILE', 'data/logs/etl.log')
