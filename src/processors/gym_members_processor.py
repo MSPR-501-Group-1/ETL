@@ -1,46 +1,34 @@
 """
 Processor to clean and transform Gym Members dataset from Kaggle
 
-Applies following transformations:
-1. Data structure validation
-2. Field cleaning (normalization, null handling)
-3. Data enrichment (BMI categories, fitness levels)
-4. Deduplication and consistency
-5. Export to usable format
+Simplified using modular components:
+- BaseProcessor: Common functionality
+- GymMemberValidator: Validation logic
+- GymMemberCleaner: Cleaning logic
+- GymMemberEnricher: Enrichment logic
 """
 
 import pandas as pd
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
-from datetime import datetime
+from typing import Dict
 
-from src.utils.logger import setup_logger
-from src.utils.file_handler import save_to_json, save_to_csv, load_from_json
-from config.settings import RAW_DATA_DIR, PROCESSED_DATA_DIR
+from src.processors.base_processor import BaseProcessor
+from src.processors.validators import GymMemberValidator
+from src.processors.cleaners import GymMemberCleaner
+from src.processors.enrichers import GymMemberEnricher
+from config.settings import RAW_DATA_DIR
 
 
-class GymMembersProcessor:
+class GymMembersProcessor(BaseProcessor):
     """
     Processor to clean and transform gym members data
     
-    Transformation pipeline:
-    1. Load raw data
-    2. Structure validation
-    3. Cleaning and normalization
-    4. Enrichment
-    5. Export clean data
+    Uses modular components for maintainability
     """
     
     def __init__(self):
-        """Initialize processor and logging system"""
-        self.logger = setup_logger(self.__class__.__name__)
-        self.stats = {
-            'total_members': 0,
-            'valid_members': 0,
-            'invalid_members': 0,
-            'duplicates_removed': 0,
-            'fields_cleaned': 0
-        }
+        """Initialize processor"""
+        super().__init__("GymMembersProcessor")
     
     def load_raw_data(self, filepath: Path) -> pd.DataFrame:
         """
@@ -56,327 +44,91 @@ class GymMembersProcessor:
         
         df = pd.read_csv(filepath)
         
-        self.stats['total_members'] = len(df)
+        self.stats['total_records'] = len(df)
         self.logger.info(f"{len(df)} members loaded")
         
         return df
     
     def validate_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Validate data structure and consistency
-        
-        Validation rules:
-        - Age: 15-100 years
-        - Weight: 30-200 kg
-        - Height: 120-220 cm
-        - BMI: 10-50
-        - Heart rate: 40-220 bpm
+        Validate data using GymMemberValidator
         
         Args:
-            df: Members DataFrame
+            df: DataFrame to validate
             
         Returns:
-            DataFrame with only valid members
+            Validated DataFrame
         """
         self.logger.info("Validating data...")
         
         initial_count = len(df)
+        df = GymMemberValidator.validate(df)
         
-        # Normalize column names (lowercase, remove spaces)
-        df.columns = df.columns.str.lower().str.replace(' ', '_')
-        
-        # Validate age
-        if 'age' in df.columns:
-            df = df[(df['age'] >= 15) & (df['age'] <= 100)]
-        
-        # Validate weight
-        if 'weight_(kg)' in df.columns:
-            df = df[(df['weight_(kg)'] >= 30) & (df['weight_(kg)'] <= 200)]
-        
-        # Validate height
-        if 'height_(m)' in df.columns:
-            df = df[(df['height_(m)'] >= 1.2) & (df['height_(m)'] <= 2.2)]
-        
-        # Validate BMI
-        if 'bmi' in df.columns:
-            df = df[(df['bmi'] >= 10) & (df['bmi'] <= 50)]
-        
-        # Validate heart rate
-        if 'max_bpm' in df.columns:
-            df = df[(df['max_bpm'] >= 40) & (df['max_bpm'] <= 220)]
-        if 'avg_bpm' in df.columns:
-            df = df[(df['avg_bpm'] >= 40) & (df['avg_bpm'] <= 220)]
-        
-        self.stats['valid_members'] = len(df)
-        self.stats['invalid_members'] = initial_count - len(df)
+        self.stats['valid_records'] = len(df)
+        self.stats['invalid_records'] = initial_count - len(df)
         
         self.logger.info(
-            f"Validation complete: {self.stats['valid_members']} valid, "
-            f"{self.stats['invalid_members']} rejected"
+            f"Validation complete: {self.stats['valid_records']} valid, "
+            f"{self.stats['invalid_records']} rejected"
         )
         
         return df
     
-    def clean_text_fields(self, df: pd.DataFrame) -> pd.DataFrame:
+    def clean_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Clean and normalize text fields
-        
-        Operations:
-        - Normalize gender values
-        - Standardize workout types
-        - Clean experience levels
+        Clean data using GymMemberCleaner
         
         Args:
-            df: Members DataFrame
+            df: DataFrame to clean
             
         Returns:
-            DataFrame with cleaned text fields
+            Cleaned DataFrame
         """
         self.logger.info("Cleaning text fields...")
         
-        # Normalize gender
-        if 'gender' in df.columns:
-            df['gender'] = df['gender'].str.lower().str.strip()
-            df['gender'] = df['gender'].replace({
-                'male': 'M',
-                'm': 'M',
-                'female': 'F',
-                'f': 'F'
-            })
-            self.stats['fields_cleaned'] += 1
-        
-        # Normalize workout type
-        if 'workout_type' in df.columns:
-            df['workout_type'] = df['workout_type'].str.lower().str.strip()
-            self.stats['fields_cleaned'] += 1
-        
-        # Normalize experience level
-        if 'experience_level' in df.columns:
-            df['experience_level'] = df['experience_level'].str.lower().str.strip()
-            df['experience_level'] = df['experience_level'].replace({
-                '1': 'beginner',
-                '2': 'intermediate',
-                '3': 'expert'
-            })
-            self.stats['fields_cleaned'] += 1
+        df, fields_cleaned = GymMemberCleaner.clean(df)
+        self.stats['fields_cleaned'] = fields_cleaned
         
         return df
     
     def enrich_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Enrich data with calculated fields
-        
-        Additions:
-        - BMI category
-        - Age group
-        - Fitness level score
-        - Heart rate zones
-        - Calorie burn rate
+        Enrich data using GymMemberEnricher
         
         Args:
-            df: Members DataFrame
+            df: DataFrame to enrich
             
         Returns:
             Enriched DataFrame
         """
         self.logger.info("Enriching data...")
         
-        # BMI Category
-        if 'bmi' in df.columns:
-            def categorize_bmi(bmi):
-                if bmi < 18.5:
-                    return 'underweight'
-                elif bmi < 25:
-                    return 'normal'
-                elif bmi < 30:
-                    return 'overweight'
-                else:
-                    return 'obese'
-            
-            df['bmi_category'] = df['bmi'].apply(categorize_bmi)
-        
-        # Age Group
-        if 'age' in df.columns:
-            def categorize_age(age):
-                if age < 25:
-                    return '18-24'
-                elif age < 35:
-                    return '25-34'
-                elif age < 45:
-                    return '35-44'
-                elif age < 55:
-                    return '45-54'
-                else:
-                    return '55+'
-            
-            df['age_group'] = df['age'].apply(categorize_age)
-        
-        # Fitness Score (based on multiple factors)
-        if all(col in df.columns for col in ['max_bpm', 'calories_burned', 'workout_frequency_(days/week)']):
-            df['fitness_score'] = (
-                (df['max_bpm'] / 220 * 20) +
-                (df['calories_burned'] / 100 * 30) +
-                (df['workout_frequency_(days/week)'] * 10)
-            ).round(2)
-        
-        # Heart Rate Reserve (HRR)
-        if 'max_bpm' in df.columns and 'avg_bpm' in df.columns:
-            df['heart_rate_reserve'] = df['max_bpm'] - df['avg_bpm']
-        
-        # Calorie Burn Rate (calories per session)
-        if 'calories_burned' in df.columns and 'session_duration_(hours)' in df.columns:
-            df['calorie_burn_rate'] = (
-                df['calories_burned'] / df['session_duration_(hours)']
-            ).round(2)
-        
-        # Body Fat Category
-        if 'body_fat_%' in df.columns and 'gender' in df.columns:
-            def categorize_body_fat(row):
-                bf = row['body_fat_%']
-                gender = row['gender']
-                
-                if gender == 'M':
-                    if bf < 6:
-                        return 'essential'
-                    elif bf < 14:
-                        return 'athletic'
-                    elif bf < 18:
-                        return 'fit'
-                    elif bf < 25:
-                        return 'average'
-                    else:
-                        return 'obese'
-                else:  # Female
-                    if bf < 14:
-                        return 'essential'
-                    elif bf < 21:
-                        return 'athletic'
-                    elif bf < 25:
-                        return 'fit'
-                    elif bf < 32:
-                        return 'average'
-                    else:
-                        return 'obese'
-            
-            df['body_fat_category'] = df.apply(categorize_body_fat, axis=1)
-        
-        # Experience Level Score
-        if 'experience_level' in df.columns:
-            experience_scores = {
-                'beginner': 1,
-                'intermediate': 2,
-                'expert': 3
-            }
-            df['experience_score'] = df['experience_level'].map(experience_scores)
+        df = GymMemberEnricher.enrich_all(df)
         
         return df
     
     def remove_duplicates(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Remove duplicate members
-        
-        Strategy:
-        - Identify duplicates by combination of age, gender, weight, height
-        - Keep most recent entry
+        Remove duplicates using GymMemberCleaner
         
         Args:
-            df: Members DataFrame
+            df: DataFrame to deduplicate
             
         Returns:
             Deduplicated DataFrame
         """
         self.logger.info("Removing duplicates...")
         
-        initial_count = len(df)
+        df, duplicates_removed = GymMemberCleaner.remove_duplicates(df)
+        self.stats['duplicates_removed'] = duplicates_removed
         
-        duplicate_cols = []
-        for col in ['age', 'gender', 'weight_(kg)', 'height_(m)']:
-            if col in df.columns:
-                duplicate_cols.append(col)
-        
-        if duplicate_cols:
-            df = df.drop_duplicates(subset=duplicate_cols, keep='first')
-        
-        self.stats['duplicates_removed'] = initial_count - len(df)
-        self.logger.info(f"{self.stats['duplicates_removed']} duplicates removed")
+        self.logger.info(f"{duplicates_removed} duplicates removed")
         
         return df
-    
-    def add_metadata_columns(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Add metadata columns for traceability
-        
-        Args:
-            df: Members DataFrame
-            
-        Returns:
-            DataFrame with metadata
-        """
-        df['data_source'] = 'Kaggle - Gym Members Exercise Dataset'
-        df['processed_at'] = datetime.now().isoformat()
-        
-        return df
-    
-    def export_processed_data(
-        self,
-        df: pd.DataFrame,
-        output_format: str = 'both'
-    ) -> Dict[str, Path]:
-        """
-        Export processed data to JSON and/or CSV
-        
-        Args:
-            df: Processed members DataFrame
-            output_format: 'json', 'csv' or 'both'
-            
-        Returns:
-            Dictionary of created file paths
-        """
-        self.logger.info(f"Exporting data in {output_format} format...")
-        
-        PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        exported_files = {}
-        
-        if output_format in ['json', 'both']:
-            json_filename = f'gym_members_processed_{timestamp}.json'
-            json_filepath = PROCESSED_DATA_DIR / json_filename
-            
-            output_data = {
-                'metadata': {
-                    'source': 'Kaggle - Gym Members Exercise Dataset',
-                    'processing_stats': self.stats,
-                    'processed_at': datetime.now().isoformat(),
-                    'total_processed_members': len(df)
-                },
-                'members': df.to_dict('records')
-            }
-            
-            save_to_json(output_data, json_filepath)
-            exported_files['json'] = json_filepath
-            self.logger.info(f"JSON saved: {json_filepath}")
-        
-        if output_format in ['csv', 'both']:
-            csv_filename = f'gym_members_processed_{timestamp}.csv'
-            csv_filepath = PROCESSED_DATA_DIR / csv_filename
-            
-            save_to_csv(df, csv_filepath)
-            exported_files['csv'] = csv_filepath
-            self.logger.info(f"CSV saved: {csv_filepath}")
-        
-        return exported_files
     
     def run(self, input_file: Path, output_format: str = 'both') -> Dict[str, Path]:
         """
         Execute complete processing pipeline
-        
-        Pipeline:
-        1. Load raw data
-        2. Validation
-        3. Cleaning
-        4. Enrichment
-        5. Deduplication
-        6. Export
         
         Args:
             input_file: Path to raw CSV file
@@ -390,20 +142,24 @@ class GymMembersProcessor:
         self.logger.info("=" * 60)
         
         try:
+            # Load data
             df = self.load_raw_data(input_file)
-            df = self.validate_data(df)
-            df = self.clean_text_fields(df)
-            df = self.enrich_data(df)
-            df = self.remove_duplicates(df)
-            df = self.add_metadata_columns(df)
-            exported_files = self.export_processed_data(df, output_format)
             
-            self.logger.info("\n" + "=" * 60)
-            self.logger.info("Processing Statistics")
-            self.logger.info("=" * 60)
-            for key, value in self.stats.items():
-                self.logger.info(f"{key}: {value}")
+            # Run standard pipeline
+            df = self.run_pipeline(
+                df,
+                data_source='Kaggle - Gym Members Exercise Dataset'
+            )
             
+            # Export
+            exported_files = self.export_processed_data(
+                df,
+                base_filename='gym_members_processed',
+                output_format=output_format
+            )
+            
+            # Log statistics
+            self.log_statistics()
             self.logger.info("\n✅ Processing pipeline completed successfully")
             
             return exported_files
