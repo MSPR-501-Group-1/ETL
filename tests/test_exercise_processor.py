@@ -8,7 +8,7 @@ of the exercise processor.
 import pytest
 import pandas as pd
 from pathlib import Path
-from src.processors.exercise_processor import ExerciseProcessor
+from src.processors.exercises import ExerciseProcessor
 
 
 @pytest.fixture

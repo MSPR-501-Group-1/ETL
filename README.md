@@ -25,15 +25,24 @@ ETL/
 │   │   ├── exercisedb_scraper.py
 │   │   ├── kaggle_scraper.py
 │   │   └── run_scraping.py
-│   ├── processors/      # Modules de traitement (architecture modulaire)
+│   ├── processors/      # Modules de traitement (architecture modulaire par source)
 │   │   ├── base_processor.py      # Classe abstraite commune
-│   │   ├── validators.py          # Logique de validation
-│   │   ├── cleaners.py            # Logique de nettoyage
-│   │   ├── enrichers.py           # Logique d'enrichissement
-│   │   ├── exercise_processor.py  # Processor exercices
-│   │   ├── gym_members_processor.py # Processor membres gym
-│   │   └── run_processing.py      # Orchestrateur
-│   ├── loaders/         # Modules de chargement BDD
+│   │   ├── run_processing.py      # Orchestrateur
+│   │   ├── exercises/             # Logique spécifique aux exercices
+│   │   │   ├── processor.py       # ExerciseProcessor
+│   │   │   ├── validators.py      # Validation exercices
+│   │   │   ├── cleaners.py        # Nettoyage exercices
+│   │   │   └── enrichers.py       # Enrichissement exercices
+│   │   ├── gym_members/           # Logique spécifique aux membres
+│   │   │   ├── processor.py       # GymMembersProcessor
+│   │   │   ├── validators.py      # Validation membres
+│   │   │   ├── cleaners.py        # Nettoyage membres
+│   │   │   └── enrichers.py       # Enrichissement membres
+│   │   └── nutrition/             # Logique spécifique à la nutrition
+│   │       ├── processor.py       # NutritionProcessor (à venir)
+│   │       ├── validators.py      # Validation nutrition
+│   │       ├── cleaners.py        # Nettoyage nutrition
+│   │       └── enrichers.py       # Enrichissement nutrition
 │   └── utils/           # Fonctions utilitaires
 │       ├── logger.py    # Système de logging
 │       └── file_handler.py # Gestion fichiers JSON/CSV
@@ -42,9 +51,11 @@ ETL/
 
 ## 🏛️ Architecture Modulaire des Processors
 
-Les processors utilisent une **architecture en couches** pour une meilleure maintenabilité :
+Les processors utilisent une **architecture modulaire par source de données** pour une meilleure maintenabilité :
 
-### Components Réutilisables
+### Structure par Source de Données
+
+Chaque source de données (exercises, gym_members, nutrition) possède son propre module avec :
 
 **BaseProcessor** (`base_processor.py`)
 - Classe abstraite définissant le contrat pour tous les processors
@@ -52,30 +63,35 @@ Les processors utilisent une **architecture en couches** pour une meilleure main
 - Pipeline standardisé (validate → clean → enrich → deduplicate)
 - Export unifié JSON/CSV
 
-**Validators** (`validators.py`)
-- `DataValidator` : Validations génériques (champs requis, plages numériques, catégories)
-- `ExerciseValidator` : Règles spécifiques exercices (niveaux, catégories)
-- `GymMemberValidator` : Règles spécifiques membres (âge, poids, BMI, BPM)
+**Module Exercises** (`processors/exercises/`)
+- `ExerciseProcessor` : Orchestration du traitement
+- `ExerciseValidator` : Règles spécifiques (niveaux, catégories)
+- `ExerciseCleaner` : Nettoyage et déduplication
+- `ExerciseEnricher` : Enrichissement (muscle groups, difficulty scores, movement types)
 
-**Cleaners** (`cleaners.py`)
-- `DataCleaner` : Nettoyage générique (texte, duplicates, normalisation)
-- `ExerciseCleaner` : Nettoyage spécifique exercices
-- `GymMemberCleaner` : Nettoyage spécifique membres (genre, expérience)
+**Module Gym Members** (`processors/gym_members/`)
+- `GymMembersProcessor` : Orchestration du traitement
+- `GymMemberValidator` : Règles spécifiques (âge, poids, BMI, BPM)
+- `GymMemberCleaner` : Nettoyage et normalisation (genre, expérience)
+- `GymMemberEnricher` : Enrichissement (BMI category, fitness score, age groups)
 
-**Enrichers** (`enrichers.py`)
-- `ExerciseEnricher` : Enrichissement exercices (muscle groups, difficulty scores, movement types)
-- `GymMemberEnricher` : Enrichissement membres (BMI category, fitness score, age groups)
+**Module Nutrition** (`processors/nutrition/`)
+- `NutritionProcessor` : Orchestration du traitement (préparé)
+- `NutritionValidator` : Règles de validation nutrition
+- `NutritionCleaner` : Nettoyage des données nutritionnelles
+- `NutritionEnricher` : Enrichissement nutrition (macronutriments, densité calorique)
 
 ### Processors Implémentés
 
 - **ExerciseProcessor** : Traitement des exercices ExerciseDB (800+ exercices)
 - **GymMembersProcessor** : Traitement des profils membres Kaggle (900+ profils)
+- **NutritionProcessor** : Structure prête pour les données nutritionnelles
 
 **Avantages** :
-- ✅ Code réduit de 60% dans les processors
-- ✅ Logique réutilisable entre datasets
-- ✅ Tests unitaires simplifiés
-- ✅ Ajout facile de nouveaux processors (nutrition, fitness tracker)
+- ✅ Séparation claire des responsabilités par source de données
+- ✅ Logique isolée et facilement testable
+- ✅ Ajout facile de nouvelles sources (fitness tracker, biométrie)
+- ✅ Maintenance simplifiée avec modules indépendants
 
 ## 🚀 Installation
 
@@ -138,10 +154,10 @@ python -m src.processors.run_processing
 python -m src.scrapers.run_scraping
 
 # Traitement ExerciseDB uniquement
-python -m src.processors.exercise_processor
+python -m src.processors.exercises.processor
 
 # Traitement Gym Members uniquement
-python -m src.processors.gym_members_processor
+python -m src.processors.gym_members.processor
 
 # Chargement BDD (à venir)
 python -m src.loaders.run_loading
@@ -167,10 +183,10 @@ pytest tests/test_validators.py -v
 
 ```bash
 # Tester le nouveau processor ExerciseDB
-python -m src.processors.exercise_processor
+python -m src.processors.exercises.processor
 
 # Tester le nouveau processor Gym Members
-python -m src.processors.gym_members_processor
+python -m src.processors.gym_members.processor
 
 # Vérifier les fichiers générés
 ls data/processed/
