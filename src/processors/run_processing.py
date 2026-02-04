@@ -3,15 +3,15 @@ Main script to orchestrate all data processors
 
 This file executes all processing pipelines sequentially:
 1. Process ExerciseDB exercises
-2. Process nutrition data (coming soon)
-3. Process user profiles (coming soon)
+2. Process gym members data
+3. Process nutrition data (coming soon)
 
 Usage: python -m src.processors.run_processing
 """
 
 from pathlib import Path
-from src.processors.exercise_processor import ExerciseProcessor
-from src.processors.gym_members_processor import GymMembersProcessor
+from src.processors.exercises import ExerciseProcessor
+from src.processors.gym_members import GymMembersProcessor
 from src.utils.logger import setup_logger
 from config.settings import RAW_DATA_DIR
 

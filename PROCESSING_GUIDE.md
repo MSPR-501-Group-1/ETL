@@ -11,12 +11,26 @@ Ce module transforme les données brutes en données exploitables pour l'analyse
 ```
 src/processors/
 ├── __init__.py
-├── exercise_processor.py      # Traitement des exercices ExerciseDB
+├── base_processor.py          # Classe de base abstraite commune
 ├── run_processing.py          # Orchestrateur de tous les processeurs
-└── [À venir]
-    ├── nutrition_processor.py
-    ├── gym_members_processor.py
-    └── fitness_tracker_processor.py
+├── exercises/                 # Module exercices ExerciseDB
+│   ├── __init__.py
+│   ├── processor.py           # ExerciseProcessor
+│   ├── validators.py          # Validation exercices
+│   ├── cleaners.py            # Nettoyage exercices
+│   └── enrichers.py           # Enrichissement exercices
+├── gym_members/               # Module membres de gym
+│   ├── __init__.py
+│   ├── processor.py           # GymMembersProcessor
+│   ├── validators.py          # Validation membres
+│   ├── cleaners.py            # Nettoyage membres
+│   └── enrichers.py           # Enrichissement membres
+└── nutrition/                 # Module nutrition (préparé)
+    ├── __init__.py
+    ├── processor.py           # NutritionProcessor
+    ├── validators.py          # Validation nutrition
+    ├── cleaners.py            # Nettoyage nutrition
+    └── enrichers.py           # Enrichissement nutrition
 ```
 
 ---
@@ -73,7 +87,10 @@ src/processors/
 .\venv\Scripts\Activate.ps1
 
 # Exécuter le processor ExerciseDB
-python -m src.processors.exercise_processor
+python -m src.processors.exercises.processor
+
+# Ou exécuter le processor Gym Members
+python -m src.processors.gym_members.processor
 ```
 
 **Résultat :**
@@ -174,41 +191,53 @@ fields_cleaned: 5            # Nombre de champs nettoyés
 
 ### Ajouter un nouveau processeur
 
-1. Créer un fichier dans `src/processors/` (ex: `nutrition_processor.py`)
+1. Créer un dossier dans `src/processors/` (ex: `fitness_tracker/`)
 
-2. Suivre la structure :
+2. Créer les fichiers du module :
 
 ```python
-from pathlib import Path
-from src.utils.logger import setup_logger
-from src.utils.file_handler import save_to_json, load_from_json
+# src/processors/fitness_tracker/__init__.py
+from .processor import FitnessTrackerProcessor
+from .validators import FitnessTrackerValidator
+from .cleaners import FitnessTrackerCleaner
+from .enrichers import FitnessTrackerEnricher
 
-class NutritionProcessor:
+__all__ = ['FitnessTrackerProcessor', 'FitnessTrackerValidator', 
+           'FitnessTrackerCleaner', 'FitnessTrackerEnricher']
+
+# src/processors/fitness_tracker/processor.py
+from src.processors.base_processor import BaseProcessor
+from .validators import FitnessTrackerValidator
+from .cleaners import FitnessTrackerCleaner
+from .enrichers import FitnessTrackerEnricher
+
+class FitnessTrackerProcessor(BaseProcessor):
     def __init__(self):
-        self.logger = setup_logger(self.__class__.__name__)
+        super().__init__("FitnessTrackerProcessor")
     
-    def run(self, input_file: Path, output_format: str = 'both'):
-        """Pipeline complet"""
-        # 1. Charger
-        # 2. Valider
-        # 3. Nettoyer
-        # 4. Enrichir
-        # 5. Exporter
-        pass
+    def validate_data(self, df):
+        return FitnessTrackerValidator.validate(df)
+    
+    def clean_data(self, df):
+        return FitnessTrackerCleaner.clean(df)
+    
+    def enrich_data(self, df):
+        return FitnessTrackerEnricher.enrich_all(df)
+    # ...
 ```
 
 3. Ajouter dans `run_processing.py` :
 
 ```python
-from src.processors.nutrition_processor import NutritionProcessor
+from src.processors.fitness_tracker import FitnessTrackerProcessor
 
-def process_nutrition():
-    processor = NutritionProcessor()
+def process_fitness_tracker():
+    processor = FitnessTrackerProcessor()
     # ...
     return processor.run(input_file)
 
 # Dans main()
-results['nutrition'] = process_nutrition()
+results['fitness_tracker'] = process_fitness_tracker()
 ```
 
 ---
@@ -259,9 +288,9 @@ python -m src.scrapers.exercisedb_scraper
 
 ## 📊 Prochaines Étapes
 
-1. ✅ **Exercices ExerciseDB** - FAIT
-2. ⏳ **Nutrition** - À faire
-3. ⏳ **Profils utilisateurs** - À faire
+1. ✅ **Exercices ExerciseDB** - FAIT (module `exercises/`)
+2. ✅ **Profils utilisateurs Gym Members** - FAIT (module `gym_members/`)
+3. 🔄 **Nutrition** - Structure prête (module `nutrition/`)
 4. ⏳ **Fitness Tracker** - À faire
 
 Une fois tous les processeurs créés, vous pourrez :

@@ -13,9 +13,9 @@ from pathlib import Path
 from typing import Dict, Tuple
 
 from src.processors.base_processor import BaseProcessor
-from src.processors.validators import ExerciseValidator
-from src.processors.cleaners import ExerciseCleaner
-from src.processors.enrichers import ExerciseEnricher
+from .validators import ExerciseValidator
+from .cleaners import ExerciseCleaner
+from .enrichers import ExerciseEnricher
 from src.utils.file_handler import load_from_json
 from config.settings import RAW_DATA_DIR
 
@@ -106,7 +106,7 @@ class ExerciseProcessor(BaseProcessor):
         Returns:
             Enriched DataFrame
         """
-        self.logger.info("Enriching data...")
+        self.logger.info("Enriching data with calculated fields...")
         
         df = ExerciseEnricher.enrich_all(df)
         
@@ -114,7 +114,7 @@ class ExerciseProcessor(BaseProcessor):
     
     def remove_duplicates(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Remove duplicates using ExerciseCleaner
+        Remove duplicate exercises
         
         Args:
             df: DataFrame to deduplicate
@@ -124,75 +124,47 @@ class ExerciseProcessor(BaseProcessor):
         """
         self.logger.info("Removing duplicates...")
         
+        initial_count = len(df)
         df, duplicates_removed = ExerciseCleaner.remove_duplicates(df)
-        self.stats['duplicates_removed'] = duplicates_removed
         
+        self.stats['duplicates_removed'] = duplicates_removed
         self.logger.info(f"{duplicates_removed} duplicates removed")
         
         return df
     
-    def run(self, input_file: Path, output_format: str = 'both') -> Dict[str, Path]:
+    def run(self, filepath: Path, output_format: str = 'both') -> Dict[str, Path]:
         """
-        Execute complete processing pipeline
+        Run complete processing pipeline
         
         Args:
-            input_file: Path to raw JSON file
-            output_format: Export format ('json', 'csv', 'both')
+            filepath: Path to raw JSON file
+            output_format: 'json', 'csv' or 'both'
             
         Returns:
-            Dictionary of exported files
+            Dictionary of created file paths
         """
-        self.logger.info("=" * 60)
-        self.logger.info("Starting ExerciseDB processing pipeline")
-        self.logger.info("=" * 60)
+        self.logger.info(f"Starting ExerciseDB processing pipeline...")
         
-        try:
-            # Load data
-            df = self.load_raw_data(input_file)
-            
-            # Run standard pipeline
-            df = self.run_pipeline(
-                df,
-                data_source=self.metadata.get('source', 'ExerciseDB'),
-                scraped_at=self.metadata.get('scraped_at')
-            )
-            
-            # Export
-            list_columns = ['primaryMuscles', 'secondaryMuscles', 'all_muscles', 'instructions', 'images']
-            exported_files = self.export_processed_data(
-                df,
-                base_filename='exercises_processed',
-                metadata=self.metadata,
-                output_format=output_format,
-                list_columns=list_columns
-            )
-            
-            # Log statistics
-            self.log_statistics()
-            self.logger.info("\n✅ Processing pipeline completed successfully")
-            
-            return exported_files
-            
-        except Exception as e:
-            self.logger.error(f"❌ Error during processing: {e}", exc_info=True)
-            raise
-
-
-if __name__ == "__main__":
-    processor = ExerciseProcessor()
-    
-    raw_files = list(RAW_DATA_DIR.glob('exercisedb_raw_*.json'))
-    
-    if raw_files:
-        latest_file = sorted(raw_files, key=lambda p: p.stat().st_mtime, reverse=True)[0]
+        # Load
+        df = self.load_raw_data(filepath)
         
-        print(f"\n📁 Source file: {latest_file.name}")
+        # Process through pipeline
+        scraped_at = self.metadata.get('scraped_at')
+        df = self.run_pipeline(df, 'ExerciseDB', scraped_at)
         
-        exported = processor.run(latest_file, output_format='both')
+        # Export
+        list_columns = ['primaryMuscles', 'secondaryMuscles', 'all_muscles', 'instructions']
+        exported_files = self.export_processed_data(
+            df,
+            'exercises_processed',
+            metadata=self.metadata,
+            output_format=output_format,
+            list_columns=list_columns
+        )
         
-        print("\n📤 Exported files:")
-        for format_type, filepath in exported.items():
-            print(f"  {format_type.upper()}: {filepath}")
-    else:
-        print("❌ No raw file found in data/raw/")
-        print("💡 Run first: python -m src.scrapers.exercisedb_scraper")
+        # Stats
+        self.log_statistics()
+        
+        self.logger.info("✅ Processing complete!")
+        
+        return exported_files
