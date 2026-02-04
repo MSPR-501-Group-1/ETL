@@ -1,4 +1,4 @@
-"""
+r"""
 Scraper to download datasets from Kaggle using their official API
 
 IMPORTANT: Requires Kaggle authentication
@@ -13,7 +13,7 @@ This scraper uses Kaggle CLI to download datasets
 import subprocess
 import shutil
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict
 from config.settings import RAW_DATA_DIR
 from src.utils.logger import setup_logger
 
