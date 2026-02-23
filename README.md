@@ -1,198 +1,296 @@
-# ETL Pipeline - HealthAI Coach
+# HealthAI Coach - Pipeline ETL
 
-Pipeline ETL pour la collecte, le nettoyage et le chargement des données nutritionnelles, d'exercices et de profils utilisateurs pour le projet HealthAI Coach.
+Pipeline ETL avec PySpark pour le projet HealthAI Coach.
 
-## 📋 Description
+## ⚠️ IMPORTANT : Utiliser Docker
 
-Ce projet implémente un pipeline ETL complet pour :
-- **Extract** : Scraping de données depuis diverses sources (Kaggle, GitHub, APIs)
-- **Transform** : Nettoyage, validation et enrichissement des données avec Pandas
-- **Load** : Chargement dans une base de données PostgreSQL
+**Docker est OBLIGATOIRE** pour éviter les problèmes de compatibilité Java :
+- PySpark 3.5.0 nécessite Java 17 (incompatible avec Java 25+)
+- Docker embarque Java 17 LTS (eclipse-temurin:17-jdk)
+- L'exécution locale peut échouer si Java 25+ est installé
 
-## 🏗️ Architecture
-
-```
-ETL/
-├── config/              # Fichiers de configuration
-│   ├── settings.py      # Configuration globale
-│   └── database.py      # Configuration BDD PostgreSQL
-├── data/            
-│   ├── raw/             # Données brutes récupérées
-│   ├── processed/       # Données nettoyées et enrichies
-│   └── logs/            # Logs des exécutions
-├── src/
-│   ├── scrapers/        # Modules de scraping
-│   │   ├── exercisedb_scraper.py
-│   │   ├── kaggle_scraper.py
-│   │   └── run_scraping.py
-│   ├── processors/      # Modules de traitement (architecture modulaire)
-│   │   ├── base_processor.py      # Classe abstraite commune
-│   │   ├── validators.py          # Logique de validation
-│   │   ├── cleaners.py            # Logique de nettoyage
-│   │   ├── enrichers.py           # Logique d'enrichissement
-│   │   ├── exercise_processor.py  # Processor exercices
-│   │   ├── gym_members_processor.py # Processor membres gym
-│   │   └── run_processing.py      # Orchestrateur
-│   ├── loaders/         # Modules de chargement BDD
-│   └── utils/           # Fonctions utilitaires
-│       ├── logger.py    # Système de logging
-│       └── file_handler.py # Gestion fichiers JSON/CSV
-└── tests/               # Tests unitaires
-```
-
-## 🏛️ Architecture Modulaire des Processors
-
-Les processors utilisent une **architecture en couches** pour une meilleure maintenabilité :
-
-### Components Réutilisables
-
-**BaseProcessor** (`base_processor.py`)
-- Classe abstraite définissant le contrat pour tous les processors
-- Gestion centralisée des statistiques et métadonnées
-- Pipeline standardisé (validate → clean → enrich → deduplicate)
-- Export unifié JSON/CSV
-
-**Validators** (`validators.py`)
-- `DataValidator` : Validations génériques (champs requis, plages numériques, catégories)
-- `ExerciseValidator` : Règles spécifiques exercices (niveaux, catégories)
-- `GymMemberValidator` : Règles spécifiques membres (âge, poids, BMI, BPM)
-
-**Cleaners** (`cleaners.py`)
-- `DataCleaner` : Nettoyage générique (texte, duplicates, normalisation)
-- `ExerciseCleaner` : Nettoyage spécifique exercices
-- `GymMemberCleaner` : Nettoyage spécifique membres (genre, expérience)
-
-**Enrichers** (`enrichers.py`)
-- `ExerciseEnricher` : Enrichissement exercices (muscle groups, difficulty scores, movement types)
-- `GymMemberEnricher` : Enrichissement membres (BMI category, fitness score, age groups)
-
-### Processors Implémentés
-
-- **ExerciseProcessor** : Traitement des exercices ExerciseDB (800+ exercices)
-- **GymMembersProcessor** : Traitement des profils membres Kaggle (900+ profils)
-
-**Avantages** :
-- ✅ Code réduit de 60% dans les processors
-- ✅ Logique réutilisable entre datasets
-- ✅ Tests unitaires simplifiés
-- ✅ Ajout facile de nouveaux processors (nutrition, fitness tracker)
-
-## 🚀 Installation
+## 🚀 Démarrage rapide avec Docker
 
 ### Prérequis
-- Python 3.9+
-- PostgreSQL 14+
-- Git
+- Docker & Docker Compose installés
+- 4GB de RAM disponible
+- **Pour le pipeline nutrition** : [Clé API Kaggle](https://www.kaggle.com/account) (voir section Configuration Kaggle)
 
-### Configuration de l'environnement
+### Installation & Lancement
 
-1. **Cloner le repository**
 ```bash
-git clone <your-repo-url>
-cd ETL
-```
-
-2. **Créer un environnement virtuel**
-```bash
-python -m venv venv
-```
-
-3. **Activer l'environnement virtuel**
-```bash
-# Windows
-.\venv\Scripts\Activate.ps1
-
-# Linux/Mac
-source venv/bin/activate
-```
-
-4. **Installer les dépendances**
-```bash
-pip install -r requirements.txt
-```
-
-5. **Configurer les variables d'environnement**
-```bash
+# 1. Copier les variables d'environnement
 cp .env.example .env
-# Éditer .env avec vos paramètres
+
+# 2. Construire et lancer les services (exécute le pipeline ETL complet)
+docker-compose up --build
+
+# Cela va :
+# - Démarrer PostgreSQL
+# - Exécuter l'ETL : Extract → Transform → Load
+# - Sauvegarder les données dans PostgreSQL + Parquet + CSV
+```
+
+### Vérifier les résultats
+
+```bash
+# Connexion à PostgreSQL
+docker exec -it healthai_postgres psql -U healthai -d healthai_db
+
+# Requêtes SQL
+SELECT COUNT(*) FROM exercise;
+SELECT name, difficulty_level, equipment_required FROM exercise LIMIT 5;
+\q  # Quitter
+```
+
+**Ou via script PowerShell** :
+
+```powershell
+.\scripts\verify.ps1
+```
+
+### Exécuter des pipelines spécifiques
+
+```bash
+# Tous les pipelines
+docker-compose run --rm etl python3 main.py --pipeline all
+
+# Pipeline exercises uniquement
+docker-compose run --rm etl python3 main.py --pipeline exercises
+
+# Pipeline nutrition uniquement
+docker-compose run --rm etl python3 main.py --pipeline nutrition
+
+# Étapes individuelles
+docker-compose run --rm etl python3 -m processors.exercises.extract
+docker-compose run --rm etl python3 -m processors.exercises.transform
+docker-compose run --rm etl python3 -m processors.exercises.load
+```
+
+### Arrêter les services
+
+```bash
+# Arrêt simple
+docker-compose down
+
+# Supprimer les volumes (efface la base de données)
+docker-compose down -v
+```
+
+## 📁 Structure du projet
+
+```
+ETL2/
+├── processors/          # Pipelines ETL par source
+│   ├── exercises/      # Pipeline données exercices (GitHub)
+│   │   ├── extract.py  # Téléchargement données brutes
+│   │   ├── transform.py # Transformation PySpark → MCD
+│   │   ├── load.py     # Chargement PostgreSQL
+│   │   ├── pipeline.py # Orchestrateur complet
+│   │   └── config.py   # Configuration
+│   └── nutrition/      # Pipeline données nutrition (Kaggle)
+│       ├── extract.py  # Téléchargement via Kaggle CLI
+│       ├── transform.py # Transformation PySpark → MCD
+│       ├── load.py     # Chargement PostgreSQL
+│       ├── pipeline.py # Orchestrateur complet
+│       └── config.py   # Configuration
+├── spark/              # Gestionnaire session Spark
+│   └── session.py      # Session singleton
+├── data/               # Répertoires données
+│   ├── raw/           # Données brutes
+│   └── processed/     # Données transformées
+├── database/           # Schémas SQL
+│   └── init.sql       # Initialisation tables
+├── scripts/           # Scripts utilitaires
+│   └── verify.ps1     # Vérification résultats
+├── main.py            # Point d'entrée principal
+├── Dockerfile         # Image Docker
+└── docker-compose.yml # Orchestration services
+```
+
+## 🛠️ Développement local (⚠️ NON RECOMMANDÉ)
+
+**ATTENTION** : L'exécution locale peut échouer si vous avez Java 25+ installé.
+**Privilégier Docker** qui embarque Java 17 compatible.
+
+### Installation (si vraiment nécessaire)
+
+```powershell
+# Vérifier la version Java (DOIT être < 25)
+java -version  # Si >= 25, utiliser Docker
+
+# 1. Créer l'environnement virtuel
+python -m venv venv
+.\venv\Scripts\Activate.ps1  # Windows
+
+# 2. Installer les dépendances
+pip install -r requirements.txt
+
+# 3. Lancer PostgreSQL seul
+docker run -d --name postgres_local `
+  -e POSTGRES_USER=healthai `
+  -e POSTGRES_PASSWORD=password `
+  -e POSTGRES_DB=healthai_db `
+  -p 5432:5432 postgres:15-alpine
+
+# 4. Initialiser la base de données
+docker exec -i postgres_local psql -U healthai -d healthai_db < database/init.sql
+```
+
+### Exécution des pipelines
+
+```powershell
+# Pipeline complet
+python main.py --pipeline exercises
+
+# Étapes individuelles
+python -m processors.exercises.extract
+python -m processors.exercises.transform
+python -m processors.exercises.load
+```
+
+### Nettoyage
+
+```powershell
+docker stop postgres_local
+docker rm postgres_local
 ```
 
 ## 📊 Sources de données
 
-- **Nutrition** : [Daily Food & Nutrition Dataset](https://www.kaggle.com/datasets/adilshamim8/daily-food-and-nutrition-dataset)
-- **Recommandations diététiques** : [Diet Recommendations Dataset](https://www.kaggle.com/datasets/ziya07/diet-recommendations-dataset)
-- **Exercices** : [ExerciseDB API](https://github.com/ExerciseDB/exercisedb-api)
-- **Profils utilisateurs** : [Gym Members Dataset](https://www.kaggle.com/datasets/valakhorasani/gym-members-exercise-dataset)
-- **Fitness Tracker** : [Fitness Tracker Dataset](https://www.kaggle.com/datasets/nadeemajeedch/fitness-tracker-dataset)
+### ✅ Implémentées
+- **Exercices** : [free-exercise-db](https://github.com/yuhonas/free-exercise-db) - 873 exercices (GitHub)
+- **Nutrition Daily Food** : [Daily Food & Nutrition Dataset](https://www.kaggle.com/datasets/adilshamim8/daily-food-and-nutrition-dataset) (Kaggle)
+- **Nutrition Values** : [Nutritional Values for Common Foods](https://www.kaggle.com/datasets/trolukovich/nutritional-values-for-common-foods-and-products) (Kaggle)
 
-## 🔧 Utilisation
+### 🔧 Configuration Kaggle (pour pipelines nutrition)
 
-### Exécuter le pipeline complet
-```bash
-python -m src.processors.run_processing
-```
+1. Créer un compte sur [Kaggle](https://www.kaggle.com)
+2. Télécharger `kaggle.json` depuis [Account Settings](https://www.kaggle.com/account)
+3. Placer le fichier :
+   ```powershell
+   # Windows
+   mkdir $HOME\.kaggle -Force
+   copy kaggle.json $HOME\.kaggle\kaggle.json
+   ```
+4. Vérifier : `python scripts/verify_nutrition.py`
 
-### Exécuter des étapes individuelles
-```bash
-# Scraping uniquement
-python -m src.scrapers.run_scraping
+### ❌ À implémenter
+- **Utilisateurs** : Gym Members, Fitness Tracker datasets
 
-# Traitement ExerciseDB uniquement
-python -m src.processors.exercise_processor
-
-# Traitement Gym Members uniquement
-python -m src.processors.gym_members_processor
-
-# Chargement BDD (à venir)
-python -m src.loaders.run_loading
-```
-
-## 🧪 Tests
+### 🚀 Lancer les pipelines
 
 ```bash
-# Exécuter tous les tests
-pytest
+# Pipeline exercises
+docker-compose run --rm etl python main.py --pipeline exercises
 
-# Avec couverture de code
-pytest --cov=src tests/
+# Pipeline nutrition (Daily Food)
+docker-compose run --rm etl python main.py --pipeline nutrition
 
-# Tester un module spécifique
-pytest tests/test_exercise_processor.py -v
+# Pipeline nutrition-values (Common Foods)
+docker-compose run --rm etl python main.py --pipeline nutrition-values
 
-# Tester les validators
-pytest tests/test_validators.py -v
+# Les deux nutrition ensemble (RECOMMANDÉ)
+docker-compose run --rm etl python main.py --pipeline nutrition-all
+
+# Tout ensemble
+docker-compose run --rm etl python main.py --pipeline all
 ```
 
-### Tests Manuels
+Voir [PIPELINES.md](PIPELINES.md) pour plus de détails.
+
+## 🗄️ Base de données
+
+PostgreSQL accessible sur `localhost:5432`
+- Base : `healthai_db`
+- Utilisateur : `healthai`
+- Mot de passe : `password`
+
+**Tables créées :**
+- `exercise` - Catalogue d'exercices (schéma MCD)
+- `food` - Catalogue d'aliments nutritionnels (schéma MCD)
+- `etl_execution` - Métadonnées d'exécution ETL
+- `data_quality_check` - Contrôles qualité
+- `data_source` - Registre des sources (3 sources)
+
+**Connexion** : `psql -h localhost -U healthai -d healthai_db`
+
+## 📦 Données de sortie
+
+Après exécution des pipelines, les données sont disponibles dans :
+
+1. **PostgreSQL** - Tables `exercise` et `food` (interrogeables en SQL)
+2. **Parquet** - `data/processed/*.parquet` (optimisé pour analytics)
+3. **CSV** - `data/processed/*_csv/` (compatible Excel/analytics)
+3. **CSV** - `data/processed/exercises_csv/` (exports lisibles)
+
+## 🔍 Vérification du pipeline
+
+```powershell
+# Via script PowerShell
+.\scripts\verify.ps1
+
+# Ou manuellement
+docker exec healthai_postgres psql -U healthai -d healthai_db -c "SELECT COUNT(*) FROM exercise;"
+```
+
+**Résultats attendus** :
+- ✅ ~873 exercices dans PostgreSQL
+- ✅ Fichier Parquet créé (~500KB)
+- ✅ Export CSV généré
+- ✅ Logs ETL dans `etl_execution`
+
+## 🐛 Troubleshooting
+
+### Voir les logs
 
 ```bash
-# Tester le nouveau processor ExerciseDB
-python -m src.processors.exercise_processor
+# Logs conteneur ETL
+docker logs healthai_etl
 
-# Tester le nouveau processor Gym Members
-python -m src.processors.gym_members_processor
+# Logs PostgreSQL
+docker logs healthai_postgres
 
-# Vérifier les fichiers générés
-ls data/processed/
+# Logs en temps réel
+docker-compose logs -f etl
 ```
 
-## 📝 Documentation
+### Redémarrer proprement
 
-- [Cahier des charges](context.md) - Contexte et exigences du projet
-- [Guide Scraping](SCRAPING_GUIDE.md) - Comment récupérer les données
-- [Guide Processing](PROCESSING_GUIDE.md) - Comment traiter et nettoyer les données
-- [Benchmark](benchmark.md) - Performances et métriques
-- [Guide de contribution](CONTRIBUTING.md) *(à créer)*
-- [Documentation API](docs/API.md) *(à créer)*
+```bash
+# Supprimer tous les conteneurs et volumes
+docker-compose down -v
 
-## 👥 Équipe
+# Rebuild et relancer
+docker-compose up --build
+```
 
-Projet MSPR - EPSI Bloc E6.1
-- [Nom Membre 1]
-- [Nom Membre 2]
-- [Nom Membre 3]
-- [Nom Membre 4]
+### Problèmes courants
 
-## 📄 Licence
+**Erreur "port 5432 already in use"** :
+```bash
+# Trouver et arrêter le processus
+netstat -ano | findstr :5432
+taskkill /PID <PID> /F
+```
 
-Ce projet est réalisé dans un cadre pédagogique - EPSI 2026
+**Données corrompues** :
+```bash
+# Supprimer et re-extraire
+rm data/raw/exercises/exercises.json
+docker-compose run --rm etl python3 -m processors.exercises.extract
+```
+
+## 📈 Prochaines étapes
+
+- [ ] Implémenter pipeline nutrition
+- [ ] Implémenter pipeline utilisateurs  
+- [ ] Ajouter dashboard de visualisation
+- [ ] Implémenter contrôles qualité avancés
+- [ ] Ajouter API REST pour consultation
+- [ ] Orchestration avec Apache Airflow
+
+## 🤝 Contributeurs
+
+Projet MSPR - EPSI 2026  
+Équipe : [Vos noms]
