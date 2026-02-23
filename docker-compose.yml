@@ -1,0 +1,50 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: healthai_postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-healthai_db}
+      POSTGRES_USER: ${DB_USER:-healthai}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - healthai_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U healthai -d healthai_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ETL Service
+  etl:
+    build: .
+    container_name: healthai_etl
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-healthai_db}
+      DB_USER: ${DB_USER:-healthai}
+      DB_PASSWORD: ${DB_PASSWORD:-password}
+      SPARK_MASTER: local[*]
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    networks:
+      - healthai_network
+    # Use default CMD from Dockerfile (main.py --pipeline exercises)
+    # Or override with: command: python3 main.py --pipeline all
+
+volumes:
+  postgres_data:
+
+networks:
+  healthai_network:
+    driver: bridge

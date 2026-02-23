@@ -3,18 +3,49 @@ APIs:
         https://world.openfoodfacts.org/data
         https://spoonacular.com/food-api
         https://www.themealdb.com/api.php
+        https://fdc.nal.usda.gov/api-guide.html (USDA FoodData Central - gratuit avec API key)
+        https://developer.nutritionix.com/ (gratuit jusqu'à 500 req/jour)
+        https://developer.edamam.com/ (free tier nutrition & recipes)
+        https://www.fruityvice.com/ (API fruits - gratuit sans clé)
 
     Sport:
         https://github.com/ExerciseDB/exercisedb-api
         https://wger.de/en/software/api
+        https://github.com/yuhonas/free-exercise-db (base d'exercices JSON gratuite)
+        https://rapidapi.com/justin-WFnsXH_t6/api/exercisedb (ExerciseDB via RapidAPI)
+
+    Santé & Biométrie:
+        https://open.fda.gov/ (OpenFDA - médicaments, compléments alimentaires)
+        https://www.worldometers.info/ (statistiques santé mondiales - scraping)
+        https://disease.sh/ (COVID & health stats API)
 
 datasets:
     Food:
         https://ciqual.anses.fr/
         https://www.kaggle.com/datasets/adilshamim8/daily-food-and-nutrition-dataset
         https://www.kaggle.com/datasets/ziya07/diet-recommendations-dataset
+        https://www.kaggle.com/datasets/trolukovich/nutritional-values-for-common-foods-and-products
+        https://www.kaggle.com/datasets/irkaal/foodcom-recipes-and-reviews (recettes + reviews)
+        https://www.kaggle.com/datasets/shuyangli94/food-com-recipes-and-user-interactions
+        https://github.com/openfoodfacts/openfoodfacts-server (dump complet OpenFoodFacts)
 
     Sports: 
         https://www.kaggle.com/datasets/valakhorasani/gym-members-exercise-dataset
         https://www.kaggle.com/datasets/nadeemajeedch/fitness-tracker-dataset
         https://www.kaggle.com/datasets/jocelyndumlao/personal-metrics-data
+        https://www.kaggle.com/datasets/aroojanwarkhan/fitness-data-trends
+        https://www.kaggle.com/datasets/kukuroo3/body-performance-data
+        https://www.kaggle.com/datasets/mjwals/calories-burned-by-exercise (calories par exercice)
+        https://github.com/wger-project/wger (open source workout manager - données complètes)
+
+    Santé & Biométrie:
+        https://www.kaggle.com/datasets/mlg-ulb/healthdata
+        https://www.kaggle.com/datasets/uom190346a/sleep-health-and-lifestyle-dataset
+        https://www.kaggle.com/datasets/dansbecker/bmim-data
+        https://www.kaggle.com/datasets/yasserh/heart-rate-dataset
+        https://www.kaggle.com/datasets/ruchi798/data-science-job-salaries (profils data science - optionnel)
+
+    Utilisateurs & Profils:
+        https://www.kaggle.com/datasets/yersever/500-person-gender-height-weight-bodymassindex
+        https://www.kaggle.com/datasets/johnsmith88/heart-disease-dataset
+        https://github.com/synthetichealth/synthea (génération de données patients synthétiques)
