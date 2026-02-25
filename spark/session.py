@@ -19,11 +19,20 @@ class SparkSessionManager:
     def get_session(self, app_name: str = "HealthAI_ETL") -> SparkSession:
         """Get or create Spark session"""
         if self._spark is None:
+            # Suppress Python warnings
+            import warnings
+            warnings.filterwarnings('ignore')
+            
             builder = SparkSession.builder \
                 .appName(app_name) \
                 .master("local[*]") \
                 .config("spark.driver.memory", "2g") \
-                .config("spark.sql.adaptive.enabled", "true")
+                .config("spark.sql.adaptive.enabled", "true") \
+                .config("spark.sql.shuffle.partitions", "4") \
+                .config("spark.ui.showConsoleProgress", "false") \
+                .config("spark.ui.enabled", "false") \
+                .config("spark.python.profile", "false") \
+                .config("spark.python.worker.reuse", "true")
             
             # Add PostgreSQL JDBC driver if available
             import os
@@ -33,7 +42,25 @@ class SparkSessionManager:
             
             self._spark = builder.getOrCreate()
             
-            self._spark.sparkContext.setLogLevel("WARN")
+            # Set log levels to FATAL (only show critical errors)
+            self._spark.sparkContext.setLogLevel("FATAL")
+            
+            # Suppress ALL verbose logging
+            import logging
+            logging.getLogger("py4j").setLevel(logging.CRITICAL)
+            logging.getLogger("pyspark").setLevel(logging.CRITICAL)
+            logging.getLogger("py4j.java_gateway").setLevel(logging.CRITICAL)
+            
+            # Suppress Java logging via log4j
+            try:
+                log4j = self._spark._jvm.org.apache.log4j
+                log4j.LogManager.getRootLogger().setLevel(log4j.Level.FATAL)
+                log4j.Logger.getLogger("org").setLevel(log4j.Level.FATAL)
+                log4j.Logger.getLogger("akka").setLevel(log4j.Level.FATAL)
+                log4j.Logger.getLogger("org.apache.spark").setLevel(log4j.Level.FATAL)
+                log4j.Logger.getLogger("org.apache.hadoop").setLevel(log4j.Level.FATAL)
+            except Exception:
+                pass  # If log4j config fails, continue anyway
         
         return self._spark
     

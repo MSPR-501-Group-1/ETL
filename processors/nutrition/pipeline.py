@@ -6,65 +6,61 @@ from processors.nutrition.extract import download_nutrition
 from processors.nutrition.transform import transform_nutrition
 from processors.nutrition.load import load_nutrition
 from processors.nutrition.config import LOCAL_FILE
+from utils.logger import get_logger, log_pipeline_start, log_pipeline_success, log_pipeline_failure
+import traceback
+
+logger = get_logger(__name__)
 
 def run_pipeline():
     """Execute complete ETL pipeline: Extract -> Transform -> Load"""
     
-    print("=" * 60)
-    print("🚀 NUTRITION ETL PIPELINE START")
-    print("=" * 60)
-    
-    # Step 1: Extract
-    print("\n📥 STEP 1/3: EXTRACT")
-    print("-" * 60)
-    file_path = download_nutrition()
-    
-    if not file_path:
-        print("❌ Extraction failed. Aborting pipeline.")
-        return False
-    
-    # Quick count of extracted data
-    spark = get_spark("Nutrition_Pipeline")
-    try:
-        import pandas as pd
-        df_raw = pd.read_csv(str(LOCAL_FILE))
-        print(f"✅ Extracted {len(df_raw)} foods from Kaggle")
-    except:
-        print(f"✅ Extracted data to {file_path}")
-    
-    # Step 2: Transform
-    print("\n🔄 STEP 2/3: TRANSFORM")
-    print("-" * 60)
+    log_pipeline_start(logger, "🍎 Nutrition Pipeline")
     
     try:
+        # Step 1: Extract
+        logger.info("📥 EXTRACT: Downloading nutrition data...")
+        file_path = download_nutrition()
+        
+        if not file_path:
+            log_pipeline_failure(logger, "Nutrition", "Extraction failed")
+            return False
+        
+        # Quick count of extracted data
+        spark = get_spark("Nutrition_Pipeline")
+        try:
+            import pandas as pd
+            df_raw = pd.read_csv(str(LOCAL_FILE))
+            logger.info(f"✅ Extracted {len(df_raw)} foods")
+        except:
+            logger.info(f"✅ Extracted data to {file_path}")
+        
+        # Step 2: Transform
+        logger.info("🔄 TRANSFORM: Processing data...")
         df_transformed = transform_nutrition(spark, str(LOCAL_FILE))
         
         if df_transformed is None or df_transformed.count() == 0:
-            print("❌ Transformation failed. Aborting pipeline.")
+            log_pipeline_failure(logger, "Nutrition", "Transformation produced no data")
             return False
         
-        print(f"✅ Transformed {df_transformed.count()} foods")
+        count = df_transformed.count()
+        logger.info(f"✅ Transformed {count} foods")
         
         # Step 3: Load
-        print("\n📦 STEP 3/3: LOAD")
-        print("-" * 60)
+        logger.info("📦 LOAD: Writing to database...")
         success = load_nutrition(spark, df_transformed)
         
         if success:
-            print("\n" + "=" * 60)
-            print("🎉 PIPELINE COMPLETED SUCCESSFULLY")
-            print("=" * 60)
-            print(f"📊 Summary:")
-            print(f"   - Extracted: CSV from Kaggle")
-            print(f"   - Transformed: {df_transformed.count()} foods")
-            print(f"   - Loaded: PostgreSQL + Parquet + CSV")
+            log_pipeline_success(logger, "Nutrition", f"{count} foods loaded")
             return True
         else:
-            print("\n❌ Load failed")
+            log_pipeline_failure(logger, "Nutrition", "Load operation failed")
             return False
             
     except Exception as e:
-        print(f"\n❌ Pipeline error: {e}")
+        error_msg = f"{type(e).__name__}: {str(e)}"
+        logger.error(f"Exception occurred: {error_msg}")
+        logger.debug(traceback.format_exc())
+        log_pipeline_failure(logger, "Nutrition", error_msg)
         return False
         
     finally:

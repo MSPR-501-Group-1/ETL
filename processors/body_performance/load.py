@@ -5,42 +5,44 @@ Loads 2 tables: WORKOUT_SESSION, SESSION_DETAIL
 import os
 from pyspark.sql import DataFrame
 from processors.body_performance.config import PROCESSED_DIR
+from utils.db_utils import load_with_idempotency, get_jdbc_url, get_db_properties
+from utils.logger import get_logger
 
-def get_db_properties():
-    """Get PostgreSQL connection properties from environment"""
-    return {
-        "user": os.getenv("DB_USER", "healthai"),
-        "password": os.getenv("DB_PASSWORD", "password"),
-        "driver": "org.postgresql.Driver",
-        "stringtype": "unspecified"  # Allow PostgreSQL to cast strings to UUIDs
-    }
-
-def get_jdbc_url():
-    """Build PostgreSQL JDBC URL from environment"""
-    host = os.getenv("DB_HOST", "localhost")
-    port = os.getenv("DB_PORT", "5432")
-    dbname = os.getenv("DB_NAME", "healthai_db")
-    return f"jdbc:postgresql://{host}:{port}/{dbname}"
+logger = get_logger(__name__)
 
 def load_to_postgres(spark, df_sessions: DataFrame, df_details: DataFrame = None):
-    """Load dataframes to PostgreSQL tables"""
-    jdbc_url = get_jdbc_url()
-    db_properties = get_db_properties()
+    """Load dataframes to PostgreSQL tables with idempotency checks"""
     
     try:
-        # Load WORKOUT_SESSION table
-        df_sessions.write \
-            .jdbc(url=jdbc_url, table="workout_session", mode="append", properties=db_properties)
+        # Load WORKOUT_SESSION with idempotency check
+        logger.info("Loading workout sessions...")
+        success_sessions = load_with_idempotency(
+            df_sessions,
+            table="workout_session",
+            id_column="session_id",
+            mode="append"
+        )
         
-        # Load SESSION_DETAIL table if available
+        if not success_sessions:
+            return False
+        
+        # Load SESSION_DETAIL if available
         if df_details is not None:
-            df_details.write \
-                .jdbc(url=jdbc_url, table="session_detail", mode="append", properties=db_properties)
+            logger.info("Loading session details...")
+            success_details = load_with_idempotency(
+                df_details,
+                table="session_detail",
+                id_column="detail_id",
+                mode="append"
+            )
+            
+            if not success_details:
+                return False
         
         return True
         
     except Exception as e:
-        print(f"❌ FAILED: PostgreSQL load failed: {e}")
+        logger.error(f"PostgreSQL load failed: {e}")
         return False
 
 def save_to_parquet(df_sessions: DataFrame, df_details: DataFrame = None):
@@ -58,7 +60,7 @@ def save_to_parquet(df_sessions: DataFrame, df_details: DataFrame = None):
         return True
         
     except Exception as e:
-        print(f"❌ FAILED: Parquet save failed: {e}")
+        logger.error(f"Parquet save failed: {e}")
         return False
 
 def export_to_csv(df_sessions: DataFrame, df_details: DataFrame = None):
@@ -80,16 +82,19 @@ def export_to_csv(df_sessions: DataFrame, df_details: DataFrame = None):
         return True
         
     except Exception as e:
-        print(f"❌ FAILED: CSV export failed: {e}")
+        logger.error(f"CSV export failed: {e}")
         return False
 
-def load_body_performance(spark, df_sessions: DataFrame, df_details: DataFrame = None):
-    """Load all body performance data to all destinations"""
-    print("⏳ Loading data...")
+def load_body_performance(spark, df_sessions: DataFrame, df_details: DataFrame = None) -> bool:
+    """Load all body performance data to all destinations with idempotency"""
+    logger.info("⏳ Loading data...")
+    logger.info(f"Workout sessions: {df_sessions.count():,}")
+    if df_details:
+        logger.info(f"Session details: {df_details.count():,}")
     
     success = True
     
-    # Load to PostgreSQL
+    # Load to PostgreSQL with idempotency checks
     if not load_to_postgres(spark, df_sessions, df_details):
         success = False
     
@@ -102,7 +107,7 @@ def load_body_performance(spark, df_sessions: DataFrame, df_details: DataFrame =
         success = False
     
     if success:
-        print("✅ Load completed")
+        logger.info("✅ Load completed")
     
     return success
 

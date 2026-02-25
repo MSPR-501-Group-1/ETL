@@ -33,6 +33,11 @@ RUN mkdir -p data/raw data/processed logs
 ENV PYTHONUNBUFFERED=1
 ENV JAVA_HOME=/opt/java/openjdk
 ENV PYSPARK_SUBMIT_ARGS="--jars /app/jars/postgresql-42.7.1.jar pyspark-shell"
+ENV SPARK_LOCAL_IP=127.0.0.1
+ENV SPARK_DRIVER_HOST=127.0.0.1
+
+# Suppress Spark progress bars and verbose output
+ENV PYARROW_IGNORE_TIMEZONE=1
 
 # Default command - runs all pipelines
 CMD ["python3", "main.py", "--pipeline", "all"]

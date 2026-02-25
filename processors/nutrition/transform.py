@@ -7,12 +7,7 @@ from pyspark.sql.functions import (
 )
 from pyspark.sql.types import StringType
 import uuid
-
-def generate_uuid():
-    """Generate UUID v4"""
-    return str(uuid.uuid4())
-
-uuid_udf = udf(generate_uuid, StringType())
+from utils.uuid_utils import food_uuid_udf
 
 def load_raw_data(spark, csv_path: str) -> DataFrame:
     """Load raw CSV data with Spark"""
@@ -33,22 +28,23 @@ def map_to_mcd_schema(df: DataFrame) -> DataFrame:
         df = df.withColumnRenamed(old_col, new_col)
     
     # Map to MCD schema (adjust based on actual CSV columns)
-    df_mapped = df.select(
-        uuid_udf().alias("food_id"),
-        
-        # Name (usually 'food_item', 'food' or 'name' column)
+    # First create name and brand columns, then use them for deterministic UUID
+    df_with_name = df.withColumn(
+        "name",
         when(col("food_item").isNotNull(), trim(col("food_item")))
-        .when(col("food").isNotNull(), trim(col("food")))
-        .when(col("name").isNotNull(), trim(col("name")))
         .otherwise(lit("Unknown"))
-        .alias("name"),
-        
-        # Brand (often not in dataset)
-        lit(None).cast(StringType()).alias("brand"),
+    ).withColumn(
+        "brand",
+        lit(None).cast(StringType())
+    )
+    
+    df_mapped = df_with_name.select(
+        food_uuid_udf(col("name"), col("brand")).alias("food_id"),
+        col("name"),
+        col("brand"),
         
         # Nutritional values per 100g
         when(col("calories_kcal").isNotNull(), spark_round(col("calories_kcal"), 2))
-        .when(col("calories").isNotNull(), spark_round(col("calories"), 2))
         .otherwise(lit(0.0))
         .alias("calories_100g"),
         

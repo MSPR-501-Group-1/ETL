@@ -5,47 +5,53 @@ Loads 3 tables: USER, USER_PROFILE, USER_METRICS
 import os
 from pyspark.sql import DataFrame
 from processors.gym_members.config import PROCESSED_DIR
+from utils.db_utils import load_with_idempotency
+from utils.logger import get_logger
 
-def get_db_properties():
-    """Get PostgreSQL connection properties from environment"""
-    return {
-        "user": os.getenv("DB_USER", "healthai"),
-        "password": os.getenv("DB_PASSWORD", "password"),
-        "driver": "org.postgresql.Driver",
-        "stringtype": "unspecified"  # Allow PostgreSQL to cast strings to UUIDs
-    }
-
-def get_jdbc_url():
-    """Build PostgreSQL JDBC URL from environment"""
-    host = os.getenv("DB_HOST", "localhost")
-    port = os.getenv("DB_PORT", "5432")
-    dbname = os.getenv("DB_NAME", "healthai_db")
-    return f"jdbc:postgresql://{host}:{port}/{dbname}"
+logger = get_logger(__name__)
 
 def load_to_postgres(spark, df_user: DataFrame, df_profile: DataFrame, df_metrics: DataFrame):
-    """Load 3 dataframes to PostgreSQL tables"""
-    print("⏳ Loading gym members data...")
-    
-    jdbc_url = get_jdbc_url()
-    db_properties = get_db_properties()
+    """Load 3 dataframes to PostgreSQL tables with idempotency checks"""
+    logger.info("⏳ Loading gym members data...")
     
     try:
-        # Load USER table
-        df_user.write \
-            .jdbc(url=jdbc_url, table="user", mode="append", properties=db_properties)
+        # Load USER table with idempotency check (quoted because 'user' is reserved)
+        logger.info("Loading users...")
+        success_user = load_with_idempotency(
+            df_user,
+            table='"user"',
+            id_column="user_id",
+            mode="append"
+        )
         
-        # Load USER_PROFILE table
-        df_profile.write \
-            .jdbc(url=jdbc_url, table="user_profile", mode="append", properties=db_properties)
+        if not success_user:
+            return False
         
-        # Load USER_METRICS table
-        df_metrics.write \
-            .jdbc(url=jdbc_url, table="user_metrics", mode="append", properties=db_properties)
+        # Load USER_PROFILE with idempotency check
+        logger.info("Loading user profiles...")
+        success_profile = load_with_idempotency(
+            df_profile,
+            table="user_profile",
+            id_column="profile_id",
+            mode="append"
+        )
         
-        return True
+        if not success_profile:
+            return False
+        
+        # Load USER_METRICS with idempotency check
+        logger.info("Loading user metrics...")
+        success_metrics = load_with_idempotency(
+            df_metrics,
+            table="user_metrics",
+            id_column="metric_id",
+            mode="append"
+        )
+        
+        return success_metrics
         
     except Exception as e:
-        print(f"❌ FAILED: PostgreSQL load error - {e}")
+        logger.error(f"PostgreSQL load error: {e}")
         return False
 
 def save_to_parquet(df_user: DataFrame, df_profile: DataFrame, df_metrics: DataFrame):
@@ -66,7 +72,7 @@ def save_to_parquet(df_user: DataFrame, df_profile: DataFrame, df_metrics: DataF
         return True
         
     except Exception as e:
-        print(f"❌ FAILED: Parquet save error - {e}")
+        logger.error(f"Parquet save failed: {e}")
         return False
 
 def export_to_csv(df_user: DataFrame, df_profile: DataFrame, df_metrics: DataFrame):
@@ -93,14 +99,12 @@ def export_to_csv(df_user: DataFrame, df_profile: DataFrame, df_metrics: DataFra
         return True
         
     except Exception as e:
-        print(f"❌ FAILED: CSV export error - {e}")
+        logger.error(f"CSV export error: {e}")
         return False
 
 def load_gym_members(spark, df_user: DataFrame, df_profile: DataFrame, df_metrics: DataFrame):
     """Load all gym members data to all destinations"""
-    print("=" * 60)
-    print("📦 LOAD GYM MEMBERS DATA")
-    print("=" * 60)
+    logger.info("📦 Loading gym members data...")
     
     success = True
     
@@ -117,7 +121,7 @@ def load_gym_members(spark, df_user: DataFrame, df_profile: DataFrame, df_metric
         success = False
     
     if success:
-        print("✅ Load completed")
+        logger.info("✅ Load completed")
     
     return success
 

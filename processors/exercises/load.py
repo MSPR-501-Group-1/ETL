@@ -49,11 +49,30 @@ def save_to_postgres(df: DataFrame, table_name: str = "exercise"):
     }
     
     try:
+        # Check if table already has data
+        from pyspark.sql import SparkSession
+        spark = SparkSession.builder.getOrCreate()
+        
+        try:
+            existing_df = spark.read.jdbc(
+                url=jdbc_url,
+                table=table_name,
+                properties=connection_properties
+            )
+            existing_count = existing_df.count()
+            
+            if existing_count > 0:
+                print(f"   ℹ️  Table already contains {existing_count} exercises, skipping load")
+                return True
+        except Exception:
+            # Table might not exist yet, proceed with insert
+            pass
+        
         # Write to PostgreSQL
         df.write.jdbc(
             url=jdbc_url,
             table=table_name,
-            mode="append",  # Changed from overwrite to avoid FK constraint issues
+            mode="append",
             properties=connection_properties
         )
         

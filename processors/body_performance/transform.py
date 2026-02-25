@@ -11,12 +11,7 @@ from pyspark.sql.functions import (
 from pyspark.sql.types import StringType
 from pyspark.sql.window import Window
 import uuid
-
-def generate_uuid():
-    """Generate UUID v4"""
-    return str(uuid.uuid4())
-
-uuid_udf = udf(generate_uuid, StringType())
+from utils.uuid_utils import session_uuid_udf, detail_uuid_udf, activity_uuid_udf, generate_user_uuid, exercise_uuid_udf
 
 def load_raw_data(spark, csv_path: str) -> DataFrame:
     """Load raw CSV data with Spark"""
@@ -42,31 +37,35 @@ def transform_to_workout_session_performance(df: DataFrame, df_users: DataFrame,
     df_users_list = df_users.select("user_id").collect()
     user_ids = [row.user_id for row in df_users_list]
     
-    # Get Gym Workout activity_id
-    gym_activity_id = df_activities.filter(col("name") == "Gym Workout") \
+    # Get Gym Workout activity_id using deterministic UUID
+    from utils.uuid_utils import generate_activity_uuid
+    
+    gym_activity_row = df_activities.filter(col("name") == "Gym Workout") \
         .select("activity_id").first()
     
-    if gym_activity_id:
-        gym_activity_id = gym_activity_id.activity_id
+    if gym_activity_row:
+        gym_activity_id = gym_activity_row.activity_id
     else:
-        gym_activity_id = str(uuid.uuid4())  # fallback
+        # Fallback: generate deterministic UUID for "Gym Workout"
+        gym_activity_id = generate_activity_uuid("Gym Workout")
     
     # Function to get user_id based on row number
     def get_user_id(row_num):
         if user_ids:
             return user_ids[int(row_num) % len(user_ids)]
-        return None
+        # Fallback: generate deterministic user ID from row number
+        return generate_user_uuid(f"user{row_num}@healthai.com")
     
-    get_user_id_udf = udf(lambda x: get_user_id(x) if user_ids else None, StringType())
+    get_user_id_udf = udf(lambda x: get_user_id(x), StringType())
     
     # Calculate estimated calories burned from performance metrics
     # Formula approximation based on body composition and activity
-    df_sessions = df_with_row.select(
-        uuid_udf().alias("session_id"),
+    df_sessions_prep = df_with_row.select(
+        col("row_num"),
         get_user_id_udf(col("row_num")).alias("user_id"),
         lit(gym_activity_id).alias("activity_id"),
         current_timestamp().alias("start_time"),
-        lit(45).cast("integer").alias("duration_minutes"),  # Standard 45min workout
+        lit(45).cast("integer").alias("duration_minutes"),
         
         # Estimate calories from body metrics and performance class
         when(col("class") == "A", lit(450.0))
@@ -85,8 +84,16 @@ def transform_to_workout_session_performance(df: DataFrame, df_users: DataFrame,
         .alias("notes")
     )
     
-    # Store row_num for session_detail mapping
-    df_sessions = df_sessions.withColumn("source_row", col("row_num"))
+    # Add deterministic session_id based on user_id, timestamp, activity_id, and source
+    df_sessions = df_sessions_prep.withColumn(
+        "session_id",
+        session_uuid_udf(col("user_id"), col("start_time").cast("string"), col("activity_id"), lit("body_performance"))
+    ).withColumn(
+        "source_row", col("row_num")
+    ).select(
+        "session_id", "user_id", "activity_id", "start_time",
+        "duration_minutes", "calories_burned", "distance_km", "notes", "source_row"
+    )
     
     # Filter out null user_ids
     df_sessions = df_sessions.filter(col("user_id").isNotNull())
@@ -133,40 +140,49 @@ def transform_to_session_detail(df: DataFrame, df_sessions: DataFrame, df_exerci
     
     # Sit-ups -> Core exercise
     detail1 = df_joined.select(
-        uuid_udf().alias("detail_id"),
         col("session_id"),
         lit(core_ex).alias("exercise_id"),
+        lit(1).cast("integer").alias("sequence"),
         lit(3).cast("integer").alias("sets"),
         when(col("sit-ups counts").isNotNull(), col("sit-ups counts").cast("integer"))
         .otherwise(lit(15))
         .alias("reps"),
         lit(None).cast("decimal(6,2)").alias("weight_kg")
-    )
+    ).withColumn(
+        "detail_id",
+        detail_uuid_udf(col("session_id"), col("exercise_id"), col("sequence"))
+    ).select("detail_id", "session_id", "exercise_id", "sets", "reps", "weight_kg")
     details.append(detail1)
     
     # Broad jump -> Leg exercise
     detail2 = df_joined.select(
-        uuid_udf().alias("detail_id"),
         col("session_id"),
         lit(leg_ex).alias("exercise_id"),
+        lit(2).cast("integer").alias("sequence"),
         lit(3).cast("integer").alias("sets"),
         lit(10).cast("integer").alias("reps"),
         lit(None).cast("decimal(6,2)").alias("weight_kg")
-    )
+    ).withColumn(
+        "detail_id",
+        detail_uuid_udf(col("session_id"), col("exercise_id"), col("sequence"))
+    ).select("detail_id", "session_id", "exercise_id", "sets", "reps", "weight_kg")
     details.append(detail2)
     
     # Grip force -> Upper body exercise
     detail3 = df_joined.select(
-        uuid_udf().alias("detail_id"),
         col("session_id"),
         lit(upper_ex).alias("exercise_id"),
+        lit(3).cast("integer").alias("sequence"),
         lit(3).cast("integer").alias("sets"),
         lit(12).cast("integer").alias("reps"),
         when(col("gripForce").isNotNull(), spark_round(col("gripForce") / 5, 2))
         .otherwise(lit(None))
         .cast("decimal(6,2)")
         .alias("weight_kg")
-    )
+    ).withColumn(
+        "detail_id",
+        detail_uuid_udf(col("session_id"), col("exercise_id"), col("sequence"))
+    ).select("detail_id", "session_id", "exercise_id", "sets", "reps", "weight_kg")
     details.append(detail3)
     
     # Union all details
@@ -206,19 +222,23 @@ def transform_body_performance(spark, csv_path: str):
     
     df_raw = load_raw_data(spark, csv_path)
     
-    # Get existing users
-    from processors.gym_members.config import LOCAL_FILE as GYM_FILE
-    if Path(GYM_FILE).exists():
-        from processors.gym_members.transform import transform_gym_members
-        df_users, _, _ = transform_gym_members(spark, str(GYM_FILE))
-    else:
-        df_users = spark.createDataFrame([
-            (str(uuid.uuid4()),) for _ in range(100)
-        ], ["user_id"])
+    # Get existing users from database (orchestrator ensures gym_members runs first)
+    from utils.db_utils import read_table_with_retry
+    from utils.logger import get_logger
     
-    # Get activity types (need for workout_session)
-    from processors.fitness_tracker.transform import create_activity_types
-    df_activities = create_activity_types(spark)
+    logger = get_logger(__name__)
+    df_users = read_table_with_retry(spark, '"user"')
+    
+    if df_users is None:
+        logger.error("No users found in database. Run gym_members pipeline first!")
+        raise ValueError("Users table is empty or doesn't exist. Run gym_members pipeline first.")
+    
+    # Get activity types from database (orchestrator ensures fitness_tracker runs first)
+    df_activities = read_table_with_retry(spark, "activity_type")
+    
+    if df_activities is None:
+        logger.error("No activity types found in database. Run fitness_tracker pipeline first!")
+        raise ValueError("Activity types table is empty or doesn't exist. Run fitness_tracker pipeline first.")
     
     # Get exercises (need for session_detail)
     from processors.exercises.config import LOCAL_FILE as EXERCISE_FILE
@@ -230,6 +250,9 @@ def transform_body_performance(spark, csv_path: str):
     
     # Transform to workout sessions
     df_sessions = transform_to_workout_session_performance(df_raw, df_users, df_activities)
+    # Cache and materialize to ensure consistent session_ids for session_detail foreign key
+    df_sessions = df_sessions.cache()
+    df_sessions.count()  # Force materialization
     
     # Transform to session details if exercises available
     df_details = None
@@ -239,7 +262,7 @@ def transform_body_performance(spark, csv_path: str):
     # Clean and validate
     df_sessions, df_details = clean_and_validate(df_sessions, df_details)
     
-    print("✅ Transform completed")
+    logger.info("✅ Transform completed")
     return df_sessions, df_details
 
 if __name__ == "__main__":

@@ -7,68 +7,64 @@ from processors.fitness_tracker.extract import download_fitness_tracker
 from processors.fitness_tracker.transform import transform_fitness_tracker
 from processors.fitness_tracker.load import load_fitness_tracker
 from processors.fitness_tracker.config import LOCAL_FILE
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 def run_pipeline():
     """Execute complete ETL pipeline: Extract -> Transform -> Load"""
     
-    print("=" * 60)
-    print("🚀 FITNESS TRACKER ETL PIPELINE START")
-    print("=" * 60)
+    from utils.logger import log_pipeline_start, log_pipeline_success, log_pipeline_failure
+    import traceback
     
-    # Step 1: Extract
-    print("\n📥 STEP 1/3: EXTRACT")
-    print("-" * 60)
-    success = download_fitness_tracker()
-    
-    if not success:
-        print("❌ Extraction failed. Aborting pipeline.")
-        return False
-    
-    # Quick count of extracted data
-    spark = get_spark("Fitness_Tracker_Pipeline")
-    try:
-        import pandas as pd
-        df_raw = pd.read_csv(str(LOCAL_FILE))
-        print(f"✅ Extracted {len(df_raw)} fitness tracker records from Kaggle")
-    except:
-        print(f"✅ Dataset downloaded: {LOCAL_FILE}")
-    
-    # Step 2: Transform
-    print("\n🔄 STEP 2/3: TRANSFORM")
-    print("-" * 60)
+    log_pipeline_start(logger, "📱 Fitness Tracker Pipeline")
     
     try:
+        # Step 1: Extract
+        logger.info("📥 EXTRACT: Downloading fitness tracker data...")
+        success = download_fitness_tracker()
+        
+        if not success:
+            log_pipeline_failure(logger, "Fitness Tracker", "Extraction failed")
+            return False
+        
+        # Quick count of extracted data
+        spark = get_spark("Fitness_Tracker_Pipeline")
+        try:
+            import pandas as pd
+            df_raw = pd.read_csv(str(LOCAL_FILE))
+            logger.info(f"✅ Extracted {len(df_raw)} fitness tracker records")
+        except:
+            logger.info(f"✅ Dataset downloaded: {LOCAL_FILE}")
+        
+        # Step 2: Transform
+        logger.info("🔄 TRANSFORM: Processing data...")
         df_activities, df_sessions = transform_fitness_tracker(spark, str(LOCAL_FILE))
         
         if df_activities is None or df_activities.count() == 0:
-            print("❌ Transformation failed. Aborting pipeline.")
+            log_pipeline_failure(logger, "Fitness Tracker", "Transformation produced no data")
             return False
         
-        print(f"✅ Transformed {df_activities.count()} activity types and {df_sessions.count()} sessions")
+        activity_count = df_activities.count()
+        session_count = df_sessions.count()
+        logger.info(f"✅ Transformed {activity_count} activity types and {session_count} sessions")
         
         # Step 3: Load
-        print("\n📦 STEP 3/3: LOAD")
-        print("-" * 60)
+        logger.info("📦 LOAD: Writing to database...")
         success = load_fitness_tracker(spark, df_activities, df_sessions)
         
         if success:
-            print("\n" + "=" * 60)
-            print("🎉 PIPELINE COMPLETED SUCCESSFULLY")
-            print("=" * 60)
-            print(f"📊 Summary:")
-            print(f"   - Extracted: {LOCAL_FILE}")
-            print(f"   - Transformed: {df_activities.count()} activity types, {df_sessions.count()} sessions")
-            print(f"   - Loaded to: PostgreSQL (activity_type, workout_session)")
-            print(f"   - Saved: Parquet + CSV formats")
+            log_pipeline_success(logger, "Fitness Tracker", f"{activity_count} activities, {session_count} sessions loaded")
             return True
         else:
-            print("\n❌ Load failed")
+            log_pipeline_failure(logger, "Fitness Tracker", "Load operation failed")
             return False
             
     except Exception as e:
-        print(f"\n❌ Pipeline error: {e}")
-        import traceback
-        traceback.print_exc()
+        error_msg = f"{type(e).__name__}: {str(e)}"
+        logger.error(f"Exception occurred: {error_msg}")
+        logger.debug(traceback.format_exc())
+        log_pipeline_failure(logger, "Fitness Tracker", error_msg)
         return False
         
     finally:

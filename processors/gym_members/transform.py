@@ -12,11 +12,9 @@ from pyspark.sql.types import StringType, DateType
 import uuid
 from datetime import datetime, timedelta
 import random
+from utils.uuid_utils import user_uuid_udf, profile_uuid_udf, metric_uuid_udf
 
-# UDF generators
-def generate_uuid():
-    """Generate UUID v4"""
-    return str(uuid.uuid4())
+# UDF generators (non-UUID)
 
 def generate_email(row_idx):
     """Generate synthetic email"""
@@ -53,7 +51,6 @@ def calculate_birth_date(age):
         return None
 
 # Register UDFs
-uuid_udf = udf(generate_uuid, StringType())
 email_udf = udf(generate_email, StringType())
 first_name_udf = udf(generate_first_name, StringType())
 last_name_udf = udf(generate_last_name, StringType())
@@ -71,12 +68,25 @@ def transform_to_user_table(df: DataFrame) -> DataFrame:
     MCD Schema: user_id, email, password_hash, first_name, last_name, 
                 birth_date, gender_code, created_at, is_active, role_code
     """
-    df_user = df.select(
-        uuid_udf().alias("user_id"),
-        email_udf(col("Age").cast("string")).alias("email"),
+    from pyspark.sql.window import Window
+    from pyspark.sql.functions import row_number, monotonically_increasing_id
+    
+    # Add unique row number for email generation
+    window = Window.orderBy(monotonically_increasing_id())
+    df_with_rownum = df.withColumn("row_num", row_number().over(window))
+    
+    # Generate email first, then use it for deterministic user_id
+    df_with_email = df_with_rownum.withColumn(
+        "email",
+        email_udf(col("row_num").cast("string"))
+    )
+    
+    df_user = df_with_email.select(
+        user_uuid_udf(col("email")).alias("user_id"),
+        col("email"),
         lit("hashed_password_placeholder").alias("password_hash"),
-        first_name_udf(col("Gender"), col("Age").cast("string")).alias("first_name"),
-        last_name_udf(col("Age").cast("string")).alias("last_name"),
+        first_name_udf(col("Gender"), col("row_num").cast("string")).alias("first_name"),
+        last_name_udf(col("row_num").cast("string")).alias("last_name"),
         birth_date_udf(col("Age")).alias("birth_date"),
         
         when(upper(trim(col("Gender"))) == "MALE", lit("M"))
@@ -99,7 +109,6 @@ def transform_to_user_profile(df: DataFrame, df_user: DataFrame) -> DataFrame:
                 activity_level_ref, health_goal_id (nullable), 
                 allergies_json (nullable), preferences_json (nullable), updated_at
     """
-    print("⏳ Transforming gym members data...")
     
     # Join with user to get user_id (using row number match)
     from pyspark.sql.window import Window
@@ -114,7 +123,7 @@ def transform_to_user_profile(df: DataFrame, df_user: DataFrame) -> DataFrame:
     df_joined = df_with_row.join(df_user_with_row.select("row_num", "user_id"), "row_num")
     
     df_profile = df_joined.select(
-        uuid_udf().alias("profile_id"),
+        profile_uuid_udf(col("user_id")).alias("profile_id"),
         col("user_id"),
         
         # Height: convert meters to cm
@@ -157,10 +166,13 @@ def transform_to_user_metrics(df: DataFrame, df_user: DataFrame) -> DataFrame:
     
     df_joined = df_with_row.join(df_user_with_row.select("row_num", "user_id"), "row_num")
     
-    df_metrics = df_joined.select(
-        uuid_udf().alias("metric_id"),
+    # Create date column first for deterministic metric_id
+    df_with_date = df_joined.withColumn("recorded_date", current_date())
+    
+    df_metrics = df_with_date.select(
+        metric_uuid_udf(col("user_id"), col("recorded_date").cast("string")).alias("metric_id"),
         col("user_id"),
-        current_date().alias("recorded_date"),
+        col("recorded_date"),
         spark_round(col("Weight (kg)"), 2).alias("weight_kg"),
         spark_round(col("Fat_Percentage"), 2).alias("body_fat_percentage"),
         
@@ -211,6 +223,10 @@ def transform_gym_members(spark, csv_path: str):
     
     # Transform to 3 tables
     df_user = transform_to_user_table(df_raw)
+    # Cache and materialize df_user to ensure consistent UUIDs
+    df_user = df_user.cache()
+    df_user.count()  # Force materialization
+    
     df_profile = transform_to_user_profile(df_raw, df_user)
     df_metrics = transform_to_user_metrics(df_raw, df_user)
     

@@ -5,41 +5,40 @@ Loads 2 tables: ACTIVITY_TYPE, WORKOUT_SESSION
 import os
 from pyspark.sql import DataFrame
 from processors.fitness_tracker.config import PROCESSED_DIR
+from utils.db_utils import load_with_idempotency, get_jdbc_url, get_db_properties
+from utils.logger import get_logger
 
-def get_db_properties():
-    """Get PostgreSQL connection properties from environment"""
-    return {
-        "user": os.getenv("DB_USER", "healthai"),
-        "password": os.getenv("DB_PASSWORD", "password"),
-        "driver": "org.postgresql.Driver",
-        "stringtype": "unspecified"  # Allow PostgreSQL to cast strings to UUIDs
-    }
-
-def get_jdbc_url():
-    """Build PostgreSQL JDBC URL from environment"""
-    host = os.getenv("DB_HOST", "localhost")
-    port = os.getenv("DB_PORT", "5432")
-    dbname = os.getenv("DB_NAME", "healthai_db")
-    return f"jdbc:postgresql://{host}:{port}/{dbname}"
+logger = get_logger(__name__)
 
 def load_to_postgres(spark, df_activities: DataFrame, df_sessions: DataFrame):
-    """Load 2 dataframes to PostgreSQL tables"""
-    jdbc_url = get_jdbc_url()
-    db_properties = get_db_properties()
+    """Load dataframes to PostgreSQL tables with idempotency checks"""
     
     try:
-        # Load ACTIVITY_TYPE table
-        df_activities.write \
-            .jdbc(url=jdbc_url, table="activity_type", mode="append", properties=db_properties)
+        # Load ACTIVITY_TYPE with idempotency check
+        logger.info("Loading activity types...")
+        success_activities = load_with_idempotency(
+            df_activities,
+            table="activity_type",
+            id_column="activity_id",
+            mode="append"
+        )
         
-        # Load WORKOUT_SESSION table
-        df_sessions.write \
-            .jdbc(url=jdbc_url, table="workout_session", mode="append", properties=db_properties)
+        if not success_activities:
+            return False
         
-        return True
+        # Load WORKOUT_SESSION with idempotency check
+        logger.info("Loading workout sessions...")
+        success_sessions = load_with_idempotency(
+            df_sessions,
+            table="workout_session",
+            id_column="session_id",
+            mode="append"
+        )
+        
+        return success_sessions
         
     except Exception as e:
-        print(f"❌ FAILED: PostgreSQL load failed: {e}")
+        logger.error(f"PostgreSQL load failed: {e}")
         return False
 
 def save_to_parquet(df_activities: DataFrame, df_sessions: DataFrame):
@@ -56,7 +55,7 @@ def save_to_parquet(df_activities: DataFrame, df_sessions: DataFrame):
         return True
         
     except Exception as e:
-        print(f"❌ FAILED: Parquet save failed: {e}")
+        logger.error(f"Parquet save failed: {e}")
         return False
 
 def export_to_csv(df_activities: DataFrame, df_sessions: DataFrame):
@@ -77,16 +76,18 @@ def export_to_csv(df_activities: DataFrame, df_sessions: DataFrame):
         return True
         
     except Exception as e:
-        print(f"❌ FAILED: CSV export failed: {e}")
+        logger.error(f"CSV export failed: {e}")
         return False
 
-def load_fitness_tracker(spark, df_activities: DataFrame, df_sessions: DataFrame):
-    """Load all fitness tracker data to all destinations"""
-    print("⏳ Loading data...")
+def load_fitness_tracker(spark, df_activities: DataFrame, df_sessions: DataFrame) -> bool:
+    """Load all fitness tracker data to all destinations with idempotency"""
+    logger.info("⏳ Loading data...")
+    logger.info(f"Activity types: {df_activities.count():,}")
+    logger.info(f"Workout sessions: {df_sessions.count():,}")
     
     success = True
     
-    # Load to PostgreSQL
+    # Load to PostgreSQL with idempotency checks
     if not load_to_postgres(spark, df_activities, df_sessions):
         success = False
     
@@ -99,7 +100,7 @@ def load_fitness_tracker(spark, df_activities: DataFrame, df_sessions: DataFrame
         success = False
     
     if success:
-        print("✅ Load completed")
+        logger.info("✅ Load completed")
     
     return success
 

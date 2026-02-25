@@ -8,12 +8,7 @@ from pyspark.sql.functions import (
 )
 from pyspark.sql.types import StringType
 import uuid
-
-def generate_uuid():
-    """Generate UUID v4"""
-    return str(uuid.uuid4())
-
-uuid_udf = udf(generate_uuid, StringType())
+from utils.uuid_utils import exercise_uuid_udf
 
 def load_raw_data(spark, json_path: str) -> DataFrame:
     """Load raw JSON data with Spark"""
@@ -29,8 +24,7 @@ def map_to_mcd_schema(df: DataFrame) -> DataFrame:
                 description, difficulty_level, equipment_required, category
     """
     df_mapped = df.select(
-        uuid_udf().alias("exercise_id"),
-        trim(col("name")).alias("name"),
+        trim(col("name")).alias("name"),  # Name first for UUID generation
         
         when(col("primaryMuscles").isNotNull(), 
              element_at(col("primaryMuscles"), 1))
@@ -58,6 +52,15 @@ def map_to_mcd_schema(df: DataFrame) -> DataFrame:
         when(col("category").isNotNull(), trim(col("category")))
         .otherwise(lit("general"))
         .alias("category")
+    )
+    
+    # Add deterministic UUID based on exercise name
+    df_mapped = df_mapped.withColumn(
+        "exercise_id",
+        exercise_uuid_udf(col("name"))
+    ).select(
+        "exercise_id", "name", "body_part_target", "video_url",
+        "description", "difficulty_level", "equipment_required", "category"
     )
     
     return df_mapped

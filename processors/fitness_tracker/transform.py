@@ -11,12 +11,7 @@ from pyspark.sql.functions import (
 from pyspark.sql.types import StringType
 from pyspark.sql.window import Window
 import uuid
-
-def generate_uuid():
-    """Generate UUID v4"""
-    return str(uuid.uuid4())
-
-uuid_udf = udf(generate_uuid, StringType())
+from utils.uuid_utils import activity_uuid_udf, session_uuid_udf, user_uuid_udf, generate_user_uuid
 
 def load_raw_data(spark, csv_path: str) -> DataFrame:
     """Load raw CSV data with Spark"""
@@ -42,7 +37,9 @@ def create_activity_types(spark) -> DataFrame:
     ]
     
     df_activities = spark.createDataFrame(activities, ["name", "met_value", "icon_url"])
-    df_activities = df_activities.withColumn("activity_id", uuid_udf())
+    
+    # Use deterministic UUID based on activity name
+    df_activities = df_activities.withColumn("activity_id", activity_uuid_udf(col("name")))
     
     df_activities = df_activities.select(
         "activity_id",
@@ -75,11 +72,12 @@ def transform_to_workout_session(df: DataFrame, df_users: DataFrame, df_activiti
     df_activities_map = df_activities.select("activity_id", "name").collect()
     activity_map = {row.name.lower(): row.activity_id for row in df_activities_map}
     
-    # Select random user_id based on row number
+    # Select user_id based on row number - use deterministic UUID generation for users
     def get_user_id(row_num):
         if user_ids:
             return user_ids[int(row_num) % len(user_ids)]
-        return None
+        # Fallback: generate deterministic user ID from row number
+        return generate_user_uuid(f"user{row_num}@healthai.com")
     
     def get_activity_id(activity_name):
         """Map activity name to activity_id"""
@@ -106,15 +104,25 @@ def transform_to_workout_session(df: DataFrame, df_users: DataFrame, df_activiti
     # Note: Column names may vary based on actual dataset structure
     # This is a generic transformation that will need adjustment based on actual columns
     
-    df_sessions = df_with_row.select(
-        uuid_udf().alias("session_id"),
+    # First create user_id, activity_id, and timestamp columns
+    df_with_ids = df_with_row.select(
+        col("row_num"),
         get_user_id_udf(col("row_num")).alias("user_id"),
-        get_activity_id_udf(lit("Gym Workout")).alias("activity_id"),  # Default activity
+        get_activity_id_udf(lit("Gym Workout")).alias("activity_id"),
         current_timestamp().alias("start_time"),
-        lit(60).cast("integer").alias("duration_minutes"),  # Default 60 min
-        lit(300.0).cast("decimal(8,2)").alias("calories_burned"),  # Default
+        lit(60).cast("integer").alias("duration_minutes"),
+        lit(300.0).cast("decimal(8,2)").alias("calories_burned"),
         lit(None).cast("decimal(6,2)").alias("distance_km"),
         lit("Fitness tracker activity").alias("notes")
+    )
+    
+    # Add deterministic session_id based on user_id, timestamp, activity_id, and source
+    df_sessions = df_with_ids.withColumn(
+        "session_id",
+        session_uuid_udf(col("user_id"), col("start_time").cast("string"), col("activity_id"), lit("fitness_tracker"))
+    ).select(
+        "session_id", "user_id", "activity_id", "start_time",
+        "duration_minutes", "calories_burned", "distance_km", "notes"
     )
     
     # Filter out null user_ids
@@ -147,20 +155,22 @@ def transform_fitness_tracker(spark, csv_path: str):
     
     df_raw = load_raw_data(spark, csv_path)
     
-    # Get existing users from database or create reference
-    # For now, we'll fetch from gym_members if available
-    from processors.gym_members.config import LOCAL_FILE as GYM_FILE
-    if Path(GYM_FILE).exists():
-        from processors.gym_members.transform import transform_gym_members
-        df_users, _, _ = transform_gym_members(spark, str(GYM_FILE))
-    else:
-        # Create mock users
-        df_users = spark.createDataFrame([
-            (str(uuid.uuid4()),) for _ in range(100)
-        ], ["user_id"])
+    # Get existing users from database (orchestrator ensures gym_members runs first)
+    from utils.db_utils import read_table_with_retry
+    from utils.logger import get_logger
+    
+    logger = get_logger(__name__)
+    df_users = read_table_with_retry(spark, '"user"')
+    
+    if df_users is None:
+        logger.error("No users found in database. Run gym_members pipeline first!")
+        raise ValueError("Users table is empty or doesn't exist. Run gym_members pipeline first.")
     
     # Create reference tables
     df_activities = create_activity_types(spark)
+    # Cache and materialize to ensure consistent UUIDs
+    df_activities = df_activities.cache()
+    df_activities.count()  # Force materialization
     
     # Transform to workout sessions
     df_sessions = transform_to_workout_session(df_raw, df_users, df_activities)
@@ -168,7 +178,7 @@ def transform_fitness_tracker(spark, csv_path: str):
     # Clean and validate
     df_activities, df_sessions = clean_and_validate(df_activities, df_sessions)
     
-    print("✅ Transform completed")
+    logger.info("✅ Transform completed")
     return df_activities, df_sessions
 
 if __name__ == "__main__":

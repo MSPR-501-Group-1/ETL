@@ -7,68 +7,61 @@ from processors.gym_members.extract import download_gym_members
 from processors.gym_members.transform import transform_gym_members
 from processors.gym_members.load import load_gym_members
 from processors.gym_members.config import LOCAL_FILE
+from utils.logger import get_logger, log_pipeline_start, log_pipeline_success, log_pipeline_failure
+import traceback
+
+logger = get_logger(__name__)
 
 def run_pipeline():
     """Execute complete ETL pipeline: Extract -> Transform -> Load"""
     
-    print("=" * 60)
-    print("🚀 GYM MEMBERS ETL PIPELINE START")
-    print("=" * 60)
-    
-    # Step 1: Extract
-    print("\n📥 STEP 1/3: EXTRACT")
-    print("-" * 60)
-    success = download_gym_members()
-    
-    if not success:
-        print("❌ Extraction failed. Aborting pipeline.")
-        return False
-    
-    # Quick count of extracted data
-    spark = get_spark("Gym_Members_Pipeline")
-    try:
-        import pandas as pd
-        df_raw = pd.read_csv(str(LOCAL_FILE))
-        print(f"✅ Extracted {len(df_raw)} gym members from Kaggle")
-    except:
-        print(f"✅ Dataset downloaded: {LOCAL_FILE}")
-    
-    # Step 2: Transform
-    print("\n🔄 STEP 2/3: TRANSFORM")
-    print("-" * 60)
+    log_pipeline_start(logger, "👥 Gym Members Pipeline")
     
     try:
+        # Step 1: Extract
+        logger.info("📥 EXTRACT: Downloading gym members data...")
+        success = download_gym_members()
+        
+        if not success:
+            log_pipeline_failure(logger, "Gym Members", "Extraction failed")
+            return False
+        
+        # Quick count of extracted data
+        spark = get_spark("Gym_Members_Pipeline")
+        try:
+            import pandas as pd
+            df_raw = pd.read_csv(str(LOCAL_FILE))
+            logger.info(f"✅ Extracted {len(df_raw)} gym members")
+        except:
+            logger.info(f"✅ Dataset downloaded: {LOCAL_FILE}")
+        
+        # Step 2: Transform
+        logger.info("🔄 TRANSFORM: Processing data...")
         df_user, df_profile, df_metrics = transform_gym_members(spark, str(LOCAL_FILE))
         
         if df_user is None or df_user.count() == 0:
-            print("❌ Transformation failed. Aborting pipeline.")
+            log_pipeline_failure(logger, "Gym Members", "Transformation produced no data")
             return False
         
-        print(f"✅ Transformed {df_user.count()} gym members into 3 tables")
+        user_count = df_user.count()
+        logger.info(f"✅ Transformed {user_count} users into 3 tables")
         
         # Step 3: Load
-        print("\n📦 STEP 3/3: LOAD")
-        print("-" * 60)
+        logger.info("📦 LOAD: Writing to database...")
         success = load_gym_members(spark, df_user, df_profile, df_metrics)
         
         if success:
-            print("\n" + "=" * 60)
-            print("🎉 PIPELINE COMPLETED SUCCESSFULLY")
-            print("=" * 60)
-            print(f"📊 Summary:")
-            print(f"   - Extracted: {LOCAL_FILE}")
-            print(f"   - Transformed: {df_user.count()} users")
-            print(f"   - Loaded to: PostgreSQL (user, user_profile, user_metrics)")
-            print(f"   - Saved: Parquet + CSV formats")
+            log_pipeline_success(logger, "Gym Members", f"{user_count} users loaded")
             return True
         else:
-            print("\n❌ Load failed")
+            log_pipeline_failure(logger, "Gym Members", "Load operation failed")
             return False
             
     except Exception as e:
-        print(f"\n❌ Pipeline error: {e}")
-        import traceback
-        traceback.print_exc()
+        error_msg = f"{type(e).__name__}: {str(e)}"
+        logger.error(f"Exception occurred: {error_msg}")
+        logger.debug(traceback.format_exc())
+        log_pipeline_failure(logger, "Gym Members", error_msg)
         return False
         
     finally:
