@@ -1,63 +1,65 @@
 """
-Complete ETL pipeline orchestrator for nutrition
+Complete ETL pipeline orchestrator for gym members
+Loads USER, USER_PROFILE, and USER_METRICS tables
 """
 from spark.session import get_spark, stop_spark
-from processors.nutrition.extract import download_nutrition
-from processors.nutrition.transform import transform_nutrition
-from processors.nutrition.load import load_nutrition
-from processors.nutrition.config import LOCAL_FILE
+from processors.gym_members.extract import download_gym_members
+from processors.gym_members.transform import transform_gym_members
+from processors.gym_members.load import load_gym_members
+from processors.gym_members.config import LOCAL_FILE
 
 def run_pipeline():
     """Execute complete ETL pipeline: Extract -> Transform -> Load"""
     
     print("=" * 60)
-    print("🚀 NUTRITION ETL PIPELINE START")
+    print("🚀 GYM MEMBERS ETL PIPELINE START")
     print("=" * 60)
     
     # Step 1: Extract
     print("\n📥 STEP 1/3: EXTRACT")
     print("-" * 60)
-    file_path = download_nutrition()
+    success = download_gym_members()
     
-    if not file_path:
+    if not success:
         print("❌ Extraction failed. Aborting pipeline.")
         return False
     
     # Quick count of extracted data
-    spark = get_spark("Nutrition_Pipeline")
+    spark = get_spark("Gym_Members_Pipeline")
     try:
         import pandas as pd
         df_raw = pd.read_csv(str(LOCAL_FILE))
-        print(f"✅ Extracted {len(df_raw)} foods from Kaggle")
+        print(f"✅ Extracted {len(df_raw)} gym members from Kaggle")
     except:
-        print(f"✅ Extracted data to {file_path}")
+        print(f"✅ Dataset downloaded: {LOCAL_FILE}")
     
     # Step 2: Transform
     print("\n🔄 STEP 2/3: TRANSFORM")
     print("-" * 60)
     
     try:
-        df_transformed = transform_nutrition(spark, str(LOCAL_FILE))
+        df_user, df_profile, df_metrics = transform_gym_members(spark, str(LOCAL_FILE))
         
-        if df_transformed is None or df_transformed.count() == 0:
+        if df_user is None or df_user.count() == 0:
             print("❌ Transformation failed. Aborting pipeline.")
             return False
         
-        print(f"✅ Transformed {df_transformed.count()} foods")
+        print(f"✅ Transformed {df_user.count()} gym members into 3 tables")
         
         # Step 3: Load
         print("\n📦 STEP 3/3: LOAD")
         print("-" * 60)
-        success = load_nutrition(spark, df_transformed)
+        success = load_gym_members(spark, df_user, df_profile, df_metrics)
         
         if success:
             print("\n" + "=" * 60)
             print("🎉 PIPELINE COMPLETED SUCCESSFULLY")
             print("=" * 60)
             print(f"📊 Summary:")
-            print(f"   - Extracted: CSV from Kaggle")
-            print(f"   - Transformed: {df_transformed.count()} foods")
-            print(f"   - Loaded: PostgreSQL + Parquet + CSV")
+            print(f"   - Extracted: {LOCAL_FILE}")
+            print(f"   - Transformed: {df_user.count()} users")
+            print(f"   - Loaded to: PostgreSQL (user, user_profile, user_metrics)")
+            print(f"   - Saved: Parquet + CSV formats")
             return True
         else:
             print("\n❌ Load failed")
@@ -65,6 +67,8 @@ def run_pipeline():
             
     except Exception as e:
         print(f"\n❌ Pipeline error: {e}")
+        import traceback
+        traceback.print_exc()
         return False
         
     finally:

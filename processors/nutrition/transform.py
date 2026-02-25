@@ -16,9 +16,7 @@ uuid_udf = udf(generate_uuid, StringType())
 
 def load_raw_data(spark, csv_path: str) -> DataFrame:
     """Load raw CSV data with Spark"""
-    print(f"📖 Loading data from: {csv_path}")
     df = spark.read.csv(csv_path, header=True, inferSchema=True)
-    print(f"✅ {df.count()} rows loaded")
     return df
 
 def map_to_mcd_schema(df: DataFrame) -> DataFrame:
@@ -29,11 +27,6 @@ def map_to_mcd_schema(df: DataFrame) -> DataFrame:
                 fat_100g, nutriscore, category_ref, fiber_g, sugar_g, 
                 sodium_mg, cholesterol_mg
     """
-    print("🔄 Mapping to MCD schema...")
-    
-    # Show original columns for debugging
-    print(f"   Original columns: {df.columns}")
-    
     # Normalize column names (lowercase, remove spaces)
     for old_col in df.columns:
         new_col = old_col.lower().replace(" ", "_").replace("(", "").replace(")", "")
@@ -43,8 +36,9 @@ def map_to_mcd_schema(df: DataFrame) -> DataFrame:
     df_mapped = df.select(
         uuid_udf().alias("food_id"),
         
-        # Name (usually 'food' or 'name' column)
-        when(col("food").isNotNull(), trim(col("food")))
+        # Name (usually 'food_item', 'food' or 'name' column)
+        when(col("food_item").isNotNull(), trim(col("food_item")))
+        .when(col("food").isNotNull(), trim(col("food")))
         .when(col("name").isNotNull(), trim(col("name")))
         .otherwise(lit("Unknown"))
         .alias("name"),
@@ -53,7 +47,8 @@ def map_to_mcd_schema(df: DataFrame) -> DataFrame:
         lit(None).cast(StringType()).alias("brand"),
         
         # Nutritional values per 100g
-        when(col("calories").isNotNull(), spark_round(col("calories"), 2))
+        when(col("calories_kcal").isNotNull(), spark_round(col("calories_kcal"), 2))
+        .when(col("calories").isNotNull(), spark_round(col("calories"), 2))
         .otherwise(lit(0.0))
         .alias("calories_100g"),
         
@@ -62,7 +57,8 @@ def map_to_mcd_schema(df: DataFrame) -> DataFrame:
         .otherwise(lit(0.0))
         .alias("protein_100g"),
         
-        when(col("carbohydrate_g").isNotNull(), spark_round(col("carbohydrate_g"), 2))
+        when(col("carbohydrates_g").isNotNull(), spark_round(col("carbohydrates_g"), 2))
+        .when(col("carbohydrate_g").isNotNull(), spark_round(col("carbohydrate_g"), 2))
         .when(col("carbs_g").isNotNull(), spark_round(col("carbs_g"), 2))
         .when(col("carbohydrates").isNotNull(), spark_round(col("carbohydrates"), 2))
         .otherwise(lit(0.0))
@@ -88,7 +84,8 @@ def map_to_mcd_schema(df: DataFrame) -> DataFrame:
         .otherwise(lit(0.0))
         .alias("fiber_g"),
         
-        when(col("sugar_g").isNotNull(), spark_round(col("sugar_g"), 2))
+        when(col("sugars_g").isNotNull(), spark_round(col("sugars_g"), 2))
+        .when(col("sugar_g").isNotNull(), spark_round(col("sugar_g"), 2))
         .when(col("sugars").isNotNull(), spark_round(col("sugars"), 2))
         .otherwise(lit(0.0))
         .alias("sugar_g"),
@@ -104,15 +101,10 @@ def map_to_mcd_schema(df: DataFrame) -> DataFrame:
         .alias("cholesterol_mg")
     )
     
-    print(f"✅ {df_mapped.count()} rows mapped")
     return df_mapped
 
 def clean_and_validate(df: DataFrame) -> DataFrame:
     """Clean and validate data"""
-    print("🧹 Cleaning and validating...")
-    
-    initial_count = df.count()
-    
     # Remove duplicates on name
     df_clean = df.dropDuplicates(["name"])
     
@@ -131,35 +123,23 @@ def clean_and_validate(df: DataFrame) -> DataFrame:
         (col("fat_100g") >= 0)
     )
     
-    final_count = df_clean.count()
-    removed = initial_count - final_count
-    
-    print(f"✅ Cleaned: {final_count} rows")
-    if removed > 0:
-        print(f"⚠️  Removed: {removed} ({removed/initial_count*100:.1f}%)")
-    
     return df_clean
 
 def transform_nutrition(spark, csv_path: str) -> DataFrame:
     """Complete transformation pipeline to MCD schema"""
-    print("="*60)
-    print("🍎 TRANSFORM NUTRITION → MCD SCHEMA")
-    print("="*60)
+    print("⏳ Transforming nutrition data...")
     
     # Check if file exists
     from pathlib import Path
     if not Path(csv_path).exists():
-        print(f"❌ File not found: {csv_path}")
-        print("💡 Run extract first: python3 -m processors.nutrition.extract")
+        print(f"❌ FAILED: File not found - {csv_path}")
         raise FileNotFoundError(f"Raw data file not found: {csv_path}")
     
     df_raw = load_raw_data(spark, csv_path)
     df_mapped = map_to_mcd_schema(df_raw)
     df_clean = clean_and_validate(df_mapped)
     
-    print("\n📊 Final schema:")
-    df_clean.printSchema()
-    
+    print("✅ Transform completed")
     return df_clean
 
 if __name__ == "__main__":

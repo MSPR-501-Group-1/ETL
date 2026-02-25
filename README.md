@@ -2,295 +2,166 @@
 
 Pipeline ETL avec PySpark pour le projet HealthAI Coach.
 
-## ⚠️ IMPORTANT : Utiliser Docker
+## ⚠️ Docker OBLIGATOIRE
 
-**Docker est OBLIGATOIRE** pour éviter les problèmes de compatibilité Java :
-- PySpark 3.5.0 nécessite Java 17 (incompatible avec Java 25+)
-- Docker embarque Java 17 LTS (eclipse-temurin:17-jdk)
-- L'exécution locale peut échouer si Java 25+ est installé
+PySpark 3.5.0 nécessite Java 17 (incompatible avec Java 25+). Docker embarque Java 17 LTS automatiquement.
 
-## 🚀 Démarrage rapide avec Docker
+## 🚀 Démarrage rapide
 
 ### Prérequis
-- Docker & Docker Compose installés
-- 4GB de RAM disponible
-- **Pour le pipeline nutrition** : [Clé API Kaggle](https://www.kaggle.com/account) (voir section Configuration Kaggle)
+- Docker & Docker Compose
+- [Compte Kaggle](https://www.kaggle.com) + API key pour 5 des 6 pipelines
 
-### Installation & Lancement
-
-```bash
-# 1. Copier les variables d'environnement
-cp .env.example .env
-
-# 2. Construire et lancer les services (exécute le pipeline ETL complet)
-docker-compose up --build
-
-# Cela va :
-# - Démarrer PostgreSQL
-# - Exécuter l'ETL : Extract → Transform → Load
-# - Sauvegarder les données dans PostgreSQL + Parquet + CSV
-```
-
-### Vérifier les résultats
-
-```bash
-# Connexion à PostgreSQL
-docker exec -it healthai_postgres psql -U healthai -d healthai_db
-
-# Requêtes SQL
-SELECT COUNT(*) FROM exercise;
-SELECT name, difficulty_level, equipment_required FROM exercise LIMIT 5;
-\q  # Quitter
-```
-
-**Ou via script PowerShell** :
+### Configuration Kaggle
 
 ```powershell
+# 1. Télécharger kaggle.json depuis https://www.kaggle.com/account
+mkdir $HOME\.kaggle -Force
+copy kaggle.json $HOME\.kaggle\kaggle.json
+```
+
+### Premier lancement
+
+```bash
+# Tout construire et lancer (exécute --pipeline all)
+docker-compose up --build
+
+# Vérifier
 .\scripts\verify.ps1
+docker exec -it healthai_postgres psql -U healthai -d healthai_db -c "SELECT COUNT(*) FROM exercise;"
 ```
 
-### Exécuter des pipelines spécifiques
+## 📊 Sources de données (6/6 implémentées)
+
+| Pipeline | Source | Type | Tables | Lignes |
+|----------|--------|------|--------|--------|
+| **exercises** | [free-exercise-db](https://github.com/yuhonas/free-exercise-db) | GitHub JSON | `exercise` | 873 |
+| **nutrition** | [Daily Food Dataset](https://www.kaggle.com/datasets/adilshamim8/daily-food-and-nutrition-dataset) | Kaggle CSV | `food` | ~9000 |
+| **nutrition-values** | [Common Foods](https://www.kaggle.com/datasets/trolukovich/nutritional-values-for-common-foods-and-products) | Kaggle CSV | `food` | append |
+| **gym-members** | [Gym Members](https://www.kaggle.com/datasets/valakhorasani/gym-members-exercise-dataset) | Kaggle CSV | `user`, `user_profile`, `user_metrics` | 973 |
+| **fitness-tracker** | [Fitness Tracker](https://www.kaggle.com/datasets/nadeemajeedch/fitness-tracker-dataset) | Kaggle CSV | `activity_type`, `workout_session` | variable |
+| **body-performance** | [Body Performance](https://www.kaggle.com/datasets/kukuroo3/body-performance-data) | Kaggle CSV | `workout_session`, `session_detail` | variable |
+
+## 🎮 Commandes pipelines
 
 ```bash
-# Tous les pipelines
-docker-compose run --rm etl python3 main.py --pipeline all
+# Pipelines individuels
+docker-compose run --rm etl python main.py --pipeline exercises
+docker-compose run --rm etl python main.py --pipeline nutrition
+docker-compose run --rm etl python main.py --pipeline nutrition-values
+docker-compose run --rm etl python main.py --pipeline gym-members
+docker-compose run --rm etl python main.py --pipeline fitness-tracker
+docker-compose run --rm etl python main.py --pipeline body-performance
 
-# Pipeline exercises uniquement
-docker-compose run --rm etl python3 main.py --pipeline exercises
-
-# Pipeline nutrition uniquement
-docker-compose run --rm etl python3 main.py --pipeline nutrition
-
-# Étapes individuelles
-docker-compose run --rm etl python3 -m processors.exercises.extract
-docker-compose run --rm etl python3 -m processors.exercises.transform
-docker-compose run --rm etl python3 -m processors.exercises.load
+# Pipelines groupés
+docker-compose run --rm etl python main.py --pipeline nutrition-all  # nutrition + nutrition-values
+docker-compose run --rm etl python main.py --pipeline workouts       # fitness-tracker + body-performance
+docker-compose run --rm etl python main.py --pipeline all            # Tous les 6 pipelines
 ```
 
-### Arrêter les services
+### ⚠️ Ordre d'exécution recommandé (dépendances FK)
 
-```bash
-# Arrêt simple
-docker-compose down
+1. `exercises` → requis par body-performance (session_detail)
+2. `gym-members` → requis par fitness-tracker et body-performance (user_id)
+3. `nutrition-all` → indépendant
+4. `workouts` → nécessite exercises + gym-members
 
-# Supprimer les volumes (efface la base de données)
-docker-compose down -v
-```
+**Best practice**: `docker-compose run --rm etl python main.py --pipeline all`
+
+### Modes d'écriture PostgreSQL
+
+- **nutrition**: `OVERWRITE` (remplace `food`)
+- Tous les autres: `APPEND`
 
 ## 📁 Structure du projet
 
 ```
 ETL2/
-├── processors/          # Pipelines ETL par source
-│   ├── exercises/      # Pipeline données exercices (GitHub)
-│   │   ├── extract.py  # Téléchargement données brutes
-│   │   ├── transform.py # Transformation PySpark → MCD
-│   │   ├── load.py     # Chargement PostgreSQL
-│   │   ├── pipeline.py # Orchestrateur complet
-│   │   └── config.py   # Configuration
-│   └── nutrition/      # Pipeline données nutrition (Kaggle)
-│       ├── extract.py  # Téléchargement via Kaggle CLI
-│       ├── transform.py # Transformation PySpark → MCD
-│       ├── load.py     # Chargement PostgreSQL
-│       ├── pipeline.py # Orchestrateur complet
-│       └── config.py   # Configuration
-├── spark/              # Gestionnaire session Spark
-│   └── session.py      # Session singleton
-├── data/               # Répertoires données
-│   ├── raw/           # Données brutes
-│   └── processed/     # Données transformées
-├── database/           # Schémas SQL
-│   └── init.sql       # Initialisation tables
-├── scripts/           # Scripts utilitaires
+├── processors/          # 6 pipelines ETL (exercises, nutrition x2, gym_members, fitness_tracker, body_performance)
+│   └── {pipeline}/     # Chaque pipeline: extract.py, transform.py, load.py, pipeline.py, config.py
+├── spark/              # Session PySpark singleton
+├── data/
+│   ├── raw/           # Données brutes téléchargées
+│   └── processed/     # Parquet + CSV outputs
+├── database/
+│   └── init.sql       # Schéma PostgreSQL (12 tables)
+├── scripts/
 │   └── verify.ps1     # Vérification résultats
-├── main.py            # Point d'entrée principal
-├── Dockerfile         # Image Docker
-└── docker-compose.yml # Orchestration services
+├── main.py            # Orchestrateur principal
+├── Dockerfile         # Java 17 + PySpark 3.5.0
+└── docker-compose.yml # postgres + etl services
 ```
 
-## 🛠️ Développement local (⚠️ NON RECOMMANDÉ)
+## 🗄️ Base de données PostgreSQL
 
-**ATTENTION** : L'exécution locale peut échouer si vous avez Java 25+ installé.
-**Privilégier Docker** qui embarque Java 17 compatible.
+**Connexion**: `localhost:5432` | User: `healthai` | Pass: `password` | DB: `healthai_db`
 
-### Installation (si vraiment nécessaire)
+**12 Tables créées**:
+- `exercise` (873 exercices) | `food` (~9000 aliments)
+- `user`, `user_profile`, `user_metrics` (973 utilisateurs)
+- `activity_type`, `workout_session`, `session_detail` (tracking entraînements)
+- `health_goal` (référence 5 objectifs)
+- `data_source`, `etl_execution`, `data_quality_check` (métadonnées ETL)
 
-```powershell
-# Vérifier la version Java (DOIT être < 25)
-java -version  # Si >= 25, utiliser Docker
+```sql
+-- Requêtes utiles
+docker exec -it healthai_postgres psql -U healthai -d healthai_db
 
-# 1. Créer l'environnement virtuel
-python -m venv venv
-.\venv\Scripts\Activate.ps1  # Windows
-
-# 2. Installer les dépendances
-pip install -r requirements.txt
-
-# 3. Lancer PostgreSQL seul
-docker run -d --name postgres_local `
-  -e POSTGRES_USER=healthai `
-  -e POSTGRES_PASSWORD=password `
-  -e POSTGRES_DB=healthai_db `
-  -p 5432:5432 postgres:15-alpine
-
-# 4. Initialiser la base de données
-docker exec -i postgres_local psql -U healthai -d healthai_db < database/init.sql
+SELECT COUNT(*) FROM exercise;
+SELECT COUNT(*) FROM food;
+SELECT COUNT(*) FROM "user";
+SELECT name, difficulty_level FROM exercise LIMIT 5;
 ```
 
-### Exécution des pipelines
+## 📦 Sorties des données
 
-```powershell
-# Pipeline complet
-python main.py --pipeline exercises
-
-# Étapes individuelles
-python -m processors.exercises.extract
-python -m processors.exercises.transform
-python -m processors.exercises.load
-```
-
-### Nettoyage
-
-```powershell
-docker stop postgres_local
-docker rm postgres_local
-```
-
-## 📊 Sources de données
-
-### ✅ Implémentées
-- **Exercices** : [free-exercise-db](https://github.com/yuhonas/free-exercise-db) - 873 exercices (GitHub)
-- **Nutrition Daily Food** : [Daily Food & Nutrition Dataset](https://www.kaggle.com/datasets/adilshamim8/daily-food-and-nutrition-dataset) (Kaggle)
-- **Nutrition Values** : [Nutritional Values for Common Foods](https://www.kaggle.com/datasets/trolukovich/nutritional-values-for-common-foods-and-products) (Kaggle)
-
-### 🔧 Configuration Kaggle (pour pipelines nutrition)
-
-1. Créer un compte sur [Kaggle](https://www.kaggle.com)
-2. Télécharger `kaggle.json` depuis [Account Settings](https://www.kaggle.com/account)
-3. Placer le fichier :
-   ```powershell
-   # Windows
-   mkdir $HOME\.kaggle -Force
-   copy kaggle.json $HOME\.kaggle\kaggle.json
-   ```
-4. Vérifier : `python scripts/verify_nutrition.py`
-
-### ❌ À implémenter
-- **Utilisateurs** : Gym Members, Fitness Tracker datasets
-
-### 🚀 Lancer les pipelines
-
-```bash
-# Pipeline exercises
-docker-compose run --rm etl python main.py --pipeline exercises
-
-# Pipeline nutrition (Daily Food)
-docker-compose run --rm etl python main.py --pipeline nutrition
-
-# Pipeline nutrition-values (Common Foods)
-docker-compose run --rm etl python main.py --pipeline nutrition-values
-
-# Les deux nutrition ensemble (RECOMMANDÉ)
-docker-compose run --rm etl python main.py --pipeline nutrition-all
-
-# Tout ensemble
-docker-compose run --rm etl python main.py --pipeline all
-```
-
-Voir [PIPELINES.md](PIPELINES.md) pour plus de détails.
-
-## 🗄️ Base de données
-
-PostgreSQL accessible sur `localhost:5432`
-- Base : `healthai_db`
-- Utilisateur : `healthai`
-- Mot de passe : `password`
-
-**Tables créées :**
-- `exercise` - Catalogue d'exercices (schéma MCD)
-- `food` - Catalogue d'aliments nutritionnels (schéma MCD)
-- `etl_execution` - Métadonnées d'exécution ETL
-- `data_quality_check` - Contrôles qualité
-- `data_source` - Registre des sources (3 sources)
-
-**Connexion** : `psql -h localhost -U healthai -d healthai_db`
-
-## 📦 Données de sortie
-
-Après exécution des pipelines, les données sont disponibles dans :
-
-1. **PostgreSQL** - Tables `exercise` et `food` (interrogeables en SQL)
-2. **Parquet** - `data/processed/*.parquet` (optimisé pour analytics)
-3. **CSV** - `data/processed/*_csv/` (compatible Excel/analytics)
-3. **CSV** - `data/processed/exercises_csv/` (exports lisibles)
-
-## 🔍 Vérification du pipeline
-
-```powershell
-# Via script PowerShell
-.\scripts\verify.ps1
-
-# Ou manuellement
-docker exec healthai_postgres psql -U healthai -d healthai_db -c "SELECT COUNT(*) FROM exercise;"
-```
-
-**Résultats attendus** :
-- ✅ ~873 exercices dans PostgreSQL
-- ✅ Fichier Parquet créé (~500KB)
-- ✅ Export CSV généré
-- ✅ Logs ETL dans `etl_execution`
+1. **PostgreSQL** → 12 tables relationnelles (requêtables SQL)
+2. **Parquet** → `data/processed/*.parquet` (analytics, optimisé)  
+3. **CSV** → `data/processed/*_csv/` (Excel compatible)
 
 ## 🐛 Troubleshooting
 
-### Voir les logs
-
 ```bash
-# Logs conteneur ETL
+# Logs
 docker logs healthai_etl
+docker-compose logs -f
 
-# Logs PostgreSQL
-docker logs healthai_postgres
-
-# Logs en temps réel
-docker-compose logs -f etl
-```
-
-### Redémarrer proprement
-
-```bash
-# Supprimer tous les conteneurs et volumes
+# Reset complet
 docker-compose down -v
-
-# Rebuild et relancer
 docker-compose up --build
-```
 
-### Problèmes courants
-
-**Erreur "port 5432 already in use"** :
-```bash
-# Trouver et arrêter le processus
+# Port 5432 occupé
 netstat -ano | findstr :5432
 taskkill /PID <PID> /F
 ```
 
-**Données corrompues** :
-```bash
-# Supprimer et re-extraire
-rm data/raw/exercises/exercises.json
-docker-compose run --rm etl python3 -m processors.exercises.extract
+## 🛠️ Développement local (⚠️ NON RECOMMANDÉ)
+
+**ATTENTION**: Nécessite Java 17. Privilégier Docker.
+
+```powershell
+# 1. Vérifier Java
+java -version  # Si >= 25, utiliser Docker obligatoirement
+
+# 2. Setup
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+
+# 3. PostgreSQL local
+docker run -d --name postgres_local `
+  -e POSTGRES_USER=healthai -e POSTGRES_PASSWORD=password `
+  -e POSTGRES_DB=healthai_db -p 5432:5432 postgres:15-alpine
+docker exec -i postgres_local psql -U healthai -d healthai_db < database/init.sql
+
+# 4. Exécuter
+python main.py --pipeline exercises
 ```
 
-## 📈 Prochaines étapes
+## 📈 Architecture technique
 
-- [ ] Implémenter pipeline nutrition
-- [ ] Implémenter pipeline utilisateurs  
-- [ ] Ajouter dashboard de visualisation
-- [ ] Implémenter contrôles qualité avancés
-- [ ] Ajouter API REST pour consultation
-- [ ] Orchestration avec Apache Airflow
+- **Stack**: PySpark 3.5.0 + PostgreSQL 15 + Docker
+- **Pattern ETL**: Extract (GitHub/Kaggle) → Transform (PySpark DataFrame) → Load (JDBC + Parquet + CSV)
+- **Dépendances**: Java 17, Python 3.x, pandas, psycopg2-binary, kaggle CLI
+- **Schéma MCD**: 12 tables relationnelles avec contraintes FK/PK (UUID)
 
-## 🤝 Contributeurs
-
-Projet MSPR - EPSI 2026  
-Équipe : [Vos noms]

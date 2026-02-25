@@ -34,5 +34,5 @@ ENV PYTHONUNBUFFERED=1
 ENV JAVA_HOME=/opt/java/openjdk
 ENV PYSPARK_SUBMIT_ARGS="--jars /app/jars/postgresql-42.7.1.jar pyspark-shell"
 
-# Default command
-CMD ["python3", "main.py", "--pipeline", "exercises"]
+# Default command - runs all pipelines
+CMD ["python3", "main.py", "--pipeline", "all"]

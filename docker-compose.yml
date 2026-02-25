@@ -34,13 +34,18 @@ services:
       DB_USER: ${DB_USER:-healthai}
       DB_PASSWORD: ${DB_PASSWORD:-password}
       SPARK_MASTER: local[*]
+      # Kaggle credentials (loaded from .env file)
+      KAGGLE_USERNAME: ${KAGGLE_USERNAME}
+      KAGGLE_KEY: ${KAGGLE_API_TOKEN}
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
+      # Optional: Mount Kaggle credentials from host
+      # - ~/.kaggle:/root/.kaggle:ro
     networks:
       - healthai_network
-    # Use default CMD from Dockerfile (main.py --pipeline exercises)
-    # Or override with: command: python3 main.py --pipeline all
+    # Runs all pipelines by default
+    # Override with: command: python3 main.py --pipeline exercises
 
 volumes:
   postgres_data:

@@ -1,68 +1,65 @@
 """
-Complete ETL pipeline orchestrator for nutrition values
-Source: Kaggle - nutritional-values-for-common-foods-and-products
+Complete ETL pipeline orchestrator for fitness tracker
+Loads ACTIVITY_TYPE and WORKOUT_SESSION tables
 """
 from spark.session import get_spark, stop_spark
-from processors.nutrition_values.extract import download_nutrition_values
-from processors.nutrition_values.transform import transform_nutrition_values
-from processors.nutrition_values.load import load_nutrition_values
-from processors.nutrition_values.config import LOCAL_FILE
+from processors.fitness_tracker.extract import download_fitness_tracker
+from processors.fitness_tracker.transform import transform_fitness_tracker
+from processors.fitness_tracker.load import load_fitness_tracker
+from processors.fitness_tracker.config import LOCAL_FILE
 
 def run_pipeline():
     """Execute complete ETL pipeline: Extract -> Transform -> Load"""
     
     print("=" * 60)
-    print("🚀 NUTRITION VALUES ETL PIPELINE START")
+    print("🚀 FITNESS TRACKER ETL PIPELINE START")
     print("=" * 60)
-    print("📊 Source: Nutritional Values for Common Foods")
-    print()
     
     # Step 1: Extract
     print("\n📥 STEP 1/3: EXTRACT")
     print("-" * 60)
-    file_path = download_nutrition_values()
+    success = download_fitness_tracker()
     
-    if not file_path:
+    if not success:
         print("❌ Extraction failed. Aborting pipeline.")
         return False
     
     # Quick count of extracted data
-    spark = get_spark("Nutrition_Values_Pipeline")
+    spark = get_spark("Fitness_Tracker_Pipeline")
     try:
         import pandas as pd
         df_raw = pd.read_csv(str(LOCAL_FILE))
-        print(f"✅ Extracted {len(df_raw)} nutritional values from Kaggle")
+        print(f"✅ Extracted {len(df_raw)} fitness tracker records from Kaggle")
     except:
-        print(f"✅ Extracted data to {file_path}")
+        print(f"✅ Dataset downloaded: {LOCAL_FILE}")
     
     # Step 2: Transform
     print("\n🔄 STEP 2/3: TRANSFORM")
     print("-" * 60)
     
     try:
-        df_transformed = transform_nutrition_values(spark, str(LOCAL_FILE))
+        df_activities, df_sessions = transform_fitness_tracker(spark, str(LOCAL_FILE))
         
-        if df_transformed is None or df_transformed.count() == 0:
+        if df_activities is None or df_activities.count() == 0:
             print("❌ Transformation failed. Aborting pipeline.")
             return False
         
-        print(f"✅ Transformed {df_transformed.count()} foods")
+        print(f"✅ Transformed {df_activities.count()} activity types and {df_sessions.count()} sessions")
         
         # Step 3: Load
         print("\n📦 STEP 3/3: LOAD")
         print("-" * 60)
-        success = load_nutrition_values(spark, df_transformed)
+        success = load_fitness_tracker(spark, df_activities, df_sessions)
         
         if success:
             print("\n" + "=" * 60)
             print("🎉 PIPELINE COMPLETED SUCCESSFULLY")
             print("=" * 60)
             print(f"📊 Summary:")
-            print(f"   - Source: Kaggle nutritional-values dataset")
-            print(f"   - Extracted: CSV with nutritional data")
-            print(f"   - Transformed: {df_transformed.count()} foods")
-            print(f"   - Loaded: PostgreSQL (food table) + Parquet + CSV")
-            print(f"\n💡 Note: Data appended to existing 'food' table")
+            print(f"   - Extracted: {LOCAL_FILE}")
+            print(f"   - Transformed: {df_activities.count()} activity types, {df_sessions.count()} sessions")
+            print(f"   - Loaded to: PostgreSQL (activity_type, workout_session)")
+            print(f"   - Saved: Parquet + CSV formats")
             return True
         else:
             print("\n❌ Load failed")

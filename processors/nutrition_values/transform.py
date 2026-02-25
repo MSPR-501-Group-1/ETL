@@ -17,9 +17,7 @@ uuid_udf = udf(generate_uuid, StringType())
 
 def load_raw_data(spark, csv_path: str) -> DataFrame:
     """Load raw CSV data with Spark"""
-    print(f"📖 Loading data from: {csv_path}")
     df = spark.read.csv(csv_path, header=True, inferSchema=True)
-    print(f"✅ {df.count()} rows loaded")
     return df
 
 def map_to_mcd_schema(df: DataFrame) -> DataFrame:
@@ -32,17 +30,10 @@ def map_to_mcd_schema(df: DataFrame) -> DataFrame:
     
     Expected columns in nutritional-values dataset may vary, handling common variations
     """
-    print("🔄 Mapping to MCD schema...")
-    
-    # Show original columns for debugging
-    print(f"   Original columns: {df.columns}")
-    
     # Normalize column names (lowercase, remove spaces/parentheses)
     for old_col in df.columns:
         new_col = old_col.lower().replace(" ", "_").replace("(", "").replace(")", "").replace("-", "_")
         df = df.withColumnRenamed(old_col, new_col)
-    
-    print(f"   Normalized columns: {df.columns}")
     
     # Map to MCD schema with flexible column matching
     df_mapped = df.select(
@@ -135,10 +126,6 @@ def map_to_mcd_schema(df: DataFrame) -> DataFrame:
 
 def clean_data(df: DataFrame) -> DataFrame:
     """Clean and validate transformed data"""
-    print("🧹 Cleaning data...")
-    
-    initial_count = df.count()
-    
     # Remove rows with null/empty names
     df = df.filter(
         (col("name").isNotNull()) & 
@@ -154,13 +141,6 @@ def clean_data(df: DataFrame) -> DataFrame:
         (col("calories_100g") >= 0) & (col("calories_100g") <= 900)
     )
     
-    final_count = df.count()
-    removed = initial_count - final_count
-    
-    print(f"   Initial rows: {initial_count}")
-    print(f"   Final rows: {final_count}")
-    print(f"   Removed: {removed} ({(removed/initial_count*100):.1f}%)")
-    
     return df
 
 def transform_nutrition_values(spark, csv_path: str) -> DataFrame:
@@ -174,9 +154,7 @@ def transform_nutrition_values(spark, csv_path: str) -> DataFrame:
     Returns:
         Transformed DataFrame matching MCD FOOD schema
     """
-    print("=" * 60)
-    print("🔄 TRANSFORM NUTRITION VALUES DATA")
-    print("=" * 60)
+    print("⏳ Transforming nutrition values data...")
     
     try:
         # 1. Load raw data
@@ -188,17 +166,11 @@ def transform_nutrition_values(spark, csv_path: str) -> DataFrame:
         # 3. Clean data
         df_clean = clean_data(df_mapped)
         
-        # 4. Show sample
-        print("\n📊 Sample transformed data:")
-        df_clean.select("name", "calories_100g", "protein_100g", "carbs_100g", "fat_100g").show(5, truncate=False)
-        
-        print(f"\n✅ Transformation completed: {df_clean.count()} foods ready")
+        print("✅ Transform completed")
         return df_clean
         
     except Exception as e:
-        print(f"\n❌ Transformation error: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"❌ FAILED: Transformation error - {e}")
         return None
 
 if __name__ == "__main__":

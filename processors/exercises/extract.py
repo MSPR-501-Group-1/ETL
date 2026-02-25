@@ -10,35 +10,27 @@ from processors.exercises.config import EXERCISE_URLS, LOCAL_FILE
 def download_exercises(force_download: bool = False) -> dict:
     """Download exercises data from GitHub URLs"""
 
-    print("🏋️  ExerciseDB - Extract raw data")
-    print("=" * 60)
+    print("⏳ Extracting exercises data...")
     
     # Check if file already exists
     if LOCAL_FILE.exists() and not force_download:
-        print(f"✅ File exists: {LOCAL_FILE}")
-        
         # Auto-load in non-interactive mode (Docker)
         if not os.isatty(0):  # Non-interactive (Docker)
-            print("📖 Reading local file (non-interactive mode)...")
             with open(LOCAL_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            print(f"✅ {len(data)} exercises loaded from cache")
+            print("✅ Extract completed (from cache)")
             return data
         
         # Ask confirmation in interactive mode
         response = input("   Download again? (y/N): ").strip().lower()
         if response != 'y':
-            print("📖 Reading local file...")
             with open(LOCAL_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            print(f"✅ {len(data)} exercises loaded from cache")
+            print("✅ Extract completed (from cache)")
             return data
     
     # Try downloading from sources
     for i, url in enumerate(EXERCISE_URLS, 1):
-        print(f"\n⬇️  Attempt {i}/{len(EXERCISE_URLS)}")
-        print(f"   URL: {url}")
-        
         try:
             response = requests.get(url, timeout=30)
             response.raise_for_status()
@@ -46,33 +38,22 @@ def download_exercises(force_download: bool = False) -> dict:
             data = response.json()
             
             if not isinstance(data, list):
-                print(f"⚠️  Unexpected format, trying next...")
                 continue
             
-            print(f"💾 Saving to: {LOCAL_FILE}")
             with open(LOCAL_FILE, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
             
-            print(f"✅ {len(data)} exercises downloaded!")
-            
-            if data:
-                print(f"\n📊 Data preview:")
-                print(f"   Count: {len(data)}")
-                print(f"   Columns: {list(data[0].keys())}")
-                print(f"\n   First exercise:")
-                for key, value in list(data[0].items())[:5]:
-                    print(f"      {key}: {value}")
-            
+            print("✅ Extract completed")
             return data
             
         except requests.exceptions.RequestException as e:
-            print(f"❌ Error: {e}")
+            print(f"❌ FAILED source {i}: {e}")
             continue
         except json.JSONDecodeError as e:
-            print(f"❌ JSON parsing error: {e}")
+            print(f"❌ FAILED source {i}: JSON parsing error - {e}")
             continue
     
-    print("\n❌ Download failed from all sources")
+    print("❌ FAILED: All sources failed")
     return None
 
 def get_exercises_stats(data: list) -> dict:

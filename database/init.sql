@@ -54,6 +54,91 @@ CREATE INDEX IF NOT EXISTS idx_food_nutriscore ON food(nutriscore);
 CREATE INDEX IF NOT EXISTS idx_food_name ON food(name);
 
 -- ============================================================
+-- USER TABLES (from MCD)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS "user" (
+    user_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    email VARCHAR(255) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    first_name VARCHAR(100) NOT NULL,
+    last_name VARCHAR(100) NOT NULL,
+    birth_date DATE,
+    gender_code VARCHAR(1) CHECK (gender_code IN ('M', 'F', 'O')),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    is_active BOOLEAN DEFAULT TRUE,
+    role_code VARCHAR(20) DEFAULT 'USER' CHECK (role_code IN ('ADMIN', 'USER', 'COACH'))
+);
+
+CREATE TABLE IF NOT EXISTS user_profile (
+    profile_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES "user"(user_id) ON DELETE CASCADE,
+    height_cm INTEGER,
+    current_weight_kg DECIMAL(5,2),
+    activity_level_ref VARCHAR(50),
+    health_goal_id UUID,
+    allergies_json TEXT,
+    preferences_json TEXT,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS user_metrics (
+    metric_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES "user"(user_id) ON DELETE CASCADE,
+    recorded_date DATE NOT NULL,
+    weight_kg DECIMAL(5,2),
+    body_fat_percentage DECIMAL(4,2),
+    steps INTEGER,
+    calories_burned DECIMAL(7,2),
+    heart_rate_avg INTEGER,
+    heart_rate_max INTEGER,
+    sleep_hours DECIMAL(4,2),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Indexes for user tables
+CREATE INDEX IF NOT EXISTS idx_user_email ON "user"(email);
+CREATE INDEX IF NOT EXISTS idx_user_profile_user_id ON user_profile(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_metrics_user_id ON user_metrics(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_metrics_date ON user_metrics(recorded_date);
+
+-- ============================================================
+-- ACTIVITY & WORKOUT TABLES (from MCD)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS activity_type (
+    activity_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(255) NOT NULL,
+    met_value DECIMAL(5,2),
+    icon_url TEXT
+);
+
+CREATE TABLE IF NOT EXISTS workout_session (
+    session_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES "user"(user_id) ON DELETE CASCADE,
+    activity_id UUID REFERENCES activity_type(activity_id) ON DELETE SET NULL,
+    start_time TIMESTAMP,
+    duration_minutes INTEGER,
+    calories_burned DECIMAL(8,2),
+    distance_km DECIMAL(8,2),
+    notes TEXT
+);
+
+CREATE TABLE IF NOT EXISTS session_detail (
+    detail_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    session_id UUID NOT NULL REFERENCES workout_session(session_id) ON DELETE CASCADE,
+    exercise_id UUID REFERENCES exercise(exercise_id) ON DELETE SET NULL,
+    sets INTEGER,
+    reps INTEGER,
+    weight_kg DECIMAL(6,2)
+);
+
+-- Indexes for activity tables
+CREATE INDEX IF NOT EXISTS idx_workout_session_user_id ON workout_session(user_id);
+CREATE INDEX IF NOT EXISTS idx_workout_session_activity_id ON workout_session(activity_id);
+CREATE INDEX IF NOT EXISTS idx_workout_session_start_time ON workout_session(start_time);
+CREATE INDEX IF NOT EXISTS idx_session_detail_session_id ON session_detail(session_id);
+CREATE INDEX IF NOT EXISTS idx_session_detail_exercise_id ON session_detail(exercise_id);
+
+-- ============================================================
 -- ETL METADATA TABLES
 -- ============================================================
 

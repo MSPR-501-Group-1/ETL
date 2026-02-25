@@ -22,17 +22,13 @@ def get_jdbc_url() -> str:
 
 def save_to_parquet(df: DataFrame, output_path: str):
     """Save DataFrame to Parquet format"""
-    print(f"💾 Saving to Parquet: {output_path}")
     df.write.mode("overwrite").parquet(output_path)
-    print(f"✅ Saved {df.count()} rows to Parquet")
 
 def save_to_csv(df: DataFrame, output_path: str):
     """Save DataFrame to CSV format"""
-    print(f"💾 Saving to CSV: {output_path}")
     df.coalesce(1).write.mode("overwrite") \
         .option("header", "true") \
         .csv(output_path)
-    print(f"✅ Saved to CSV")
 
 def save_to_postgres(df: DataFrame, table_name: str = "exercise"):
     """
@@ -42,15 +38,14 @@ def save_to_postgres(df: DataFrame, table_name: str = "exercise"):
         df: Transformed DataFrame
         table_name: Target table name
     """
-    print(f"🗄️  Loading to PostgreSQL table: {table_name}")
-    
     config = get_db_config()
     jdbc_url = get_jdbc_url()
     
     connection_properties = {
         "user": config["user"],
         "password": config["password"],
-        "driver": "org.postgresql.Driver"
+        "driver": "org.postgresql.Driver",
+        "stringtype": "unspecified"  # Allow PostgreSQL to cast strings to appropriate types
     }
     
     try:
@@ -58,17 +53,14 @@ def save_to_postgres(df: DataFrame, table_name: str = "exercise"):
         df.write.jdbc(
             url=jdbc_url,
             table=table_name,
-            mode="overwrite",  # or "append"
+            mode="append",  # Changed from overwrite to avoid FK constraint issues
             properties=connection_properties
         )
-        
-        count = df.count()
-        print(f"✅ Loaded {count} rows to PostgreSQL")
         
         return True
         
     except Exception as e:
-        print(f"❌ Error loading to PostgreSQL: {e}")
+        print(f"❌ FAILED: PostgreSQL load error - {e}")
         return False
 
 def log_etl_execution(spark, status: str, records_loaded: int, error_msg: str = None):
@@ -93,7 +85,8 @@ def log_etl_execution(spark, status: str, records_loaded: int, error_msg: str = 
         connection_properties = {
             "user": config["user"],
             "password": config["password"],
-            "driver": "org.postgresql.Driver"
+            "driver": "org.postgresql.Driver",
+            "stringtype": "unspecified"  # Allow PostgreSQL to cast strings to UUIDs
         }
         
         log_df.write.jdbc(
@@ -102,9 +95,8 @@ def log_etl_execution(spark, status: str, records_loaded: int, error_msg: str = 
             mode="append",
             properties=connection_properties
         )
-        print("📝 ETL execution logged")
     except Exception as e:
-        print(f"⚠️  Could not log execution: {e}")
+        pass
 
 def load_exercises(spark, df: DataFrame) -> bool:
     """
@@ -117,9 +109,7 @@ def load_exercises(spark, df: DataFrame) -> bool:
     Returns:
         bool: Success status
     """
-    print("=" * 60)
-    print("📦 LOAD EXERCISES DATA")
-    print("=" * 60)
+    print("⏳ Loading exercises data...")
     
     from processors.exercises.config import PROCESSED_DIR
     
@@ -138,15 +128,14 @@ def load_exercises(spark, df: DataFrame) -> bool:
         if success:
             # Log successful execution
             log_etl_execution(spark, "SUCCESS", df.count())
-            print("\n✅ Load completed successfully!")
+            print("✅ Load completed")
             return True
         else:
             log_etl_execution(spark, "FAILED", 0, "PostgreSQL load failed")
-            print("\n❌ Load failed")
             return False
             
     except Exception as e:
-        print(f"\n❌ Load error: {e}")
+        print(f"❌ FAILED: Load error - {e}")
         log_etl_execution(spark, "FAILED", 0, str(e))
         return False
 

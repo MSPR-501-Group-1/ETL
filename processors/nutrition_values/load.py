@@ -15,15 +15,14 @@ def save_to_postgres(df: DataFrame, table_name: str = "food"):
     Note: Uses APPEND mode to add to existing food table
     Mode can be changed to OVERWRITE if needed
     """
-    print(f"🗄️  Loading to PostgreSQL table: {table_name}")
-    
     config = get_db_config()
     jdbc_url = get_jdbc_url()
     
     connection_properties = {
         "user": config["user"],
         "password": config["password"],
-        "driver": "org.postgresql.Driver"
+        "driver": "org.postgresql.Driver",
+        "stringtype": "unspecified"  # Allow PostgreSQL to cast strings to UUIDs
     }
     
     try:
@@ -36,46 +35,38 @@ def save_to_postgres(df: DataFrame, table_name: str = "food"):
             properties=connection_properties
         )
         
-        count = df.count()
-        print(f"✅ Loaded {count} rows to PostgreSQL (mode: append)")
         return True
         
     except Exception as e:
-        print(f"❌ Error loading to PostgreSQL: {e}")
+        print(f"❌ FAILED: PostgreSQL load error - {e}")
         return False
 
 def load_nutrition_values(spark, df: DataFrame) -> bool:
     """Complete load pipeline: Parquet + CSV + PostgreSQL"""
-    print("=" * 60)
-    print("📦 LOAD NUTRITION VALUES DATA")
-    print("=" * 60)
+    print("⏳ Loading nutrition values data...")
     
     from processors.nutrition_values.config import PROCESSED_DIR, OUTPUT_PARQUET, OUTPUT_CSV
     
     try:
         # 1. Save to Parquet
-        print(f"\n💾 Saving to Parquet: {OUTPUT_PARQUET}")
         save_to_parquet(df, str(OUTPUT_PARQUET))
         
         # 2. Save to CSV
-        print(f"\n💾 Saving to CSV: {OUTPUT_CSV}")
         save_to_csv(df, str(OUTPUT_CSV))
         
         # 3. Load to PostgreSQL
-        print(f"\n💾 Loading to PostgreSQL...")
         success = save_to_postgres(df, "food")
         
         if success:
             log_etl_execution(spark, "SUCCESS", df.count())
-            print("\n✅ Load completed successfully!")
+            print("✅ Load completed")
             return True
         else:
             log_etl_execution(spark, "FAILED", 0, "PostgreSQL load failed")
-            print("\n❌ Load failed")
             return False
             
     except Exception as e:
-        print(f"\n❌ Load error: {e}")
+        print(f"❌ FAILED: Load error - {e}")
         log_etl_execution(spark, "FAILED", 0, str(e))
         return False
 

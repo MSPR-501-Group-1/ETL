@@ -8,32 +8,27 @@ from processors.nutrition.config import KAGGLE_DATASET, RAW_DIR, LOCAL_FILE
 
 def download_nutrition(force_download: bool = False) -> str:
     """Download nutrition dataset from Kaggle"""
-    print("🍎 Nutrition - Extract raw data")
-    print("=" * 60)
+    print("⏳ Extracting nutrition data...")
     
     # Check if file exists
     if LOCAL_FILE.exists() and not force_download:
-        print(f"✅ File exists: {LOCAL_FILE}")
         if not os.isatty(0):  # Non-interactive (Docker)
-            print("📖 Using cached file...")
+            print("✅ Extract completed (from cache)")
             return str(LOCAL_FILE)
         
         response = input("   Download again? (y/N): ").strip().lower()
         if response != 'y':
-            print("📖 Using cached file...")
+            print("✅ Extract completed (from cache)")
             return str(LOCAL_FILE)
     
     # Check Kaggle credentials
     kaggle_json = Path.home() / ".kaggle" / "kaggle.json"
     if not kaggle_json.exists():
-        print("❌ Kaggle credentials not found!")
-        print("💡 Place kaggle.json in ~/.kaggle/ or set KAGGLE_USERNAME/KAGGLE_KEY")
+        print("❌ FAILED: Kaggle credentials not found")
         
         # Check env variables
         if not (os.getenv("KAGGLE_USERNAME") and os.getenv("KAGGLE_KEY")):
             raise FileNotFoundError("Kaggle credentials missing")
-    
-    print(f"⬇️  Downloading from Kaggle: {KAGGLE_DATASET}")
     
     try:
         # Download using kaggle CLI
@@ -51,12 +46,10 @@ def download_nutrition(force_download: bool = False) -> str:
             check=True
         )
         
-        print(result.stdout)
-        
         # Find downloaded CSV
         csv_files = list(RAW_DIR.glob("*.csv"))
         if not csv_files:
-            print("❌ No CSV found after download")
+            print("❌ FAILED: No CSV found after download")
             return None
         
         downloaded_file = csv_files[0]
@@ -65,19 +58,14 @@ def download_nutrition(force_download: bool = False) -> str:
         if downloaded_file != LOCAL_FILE:
             downloaded_file.rename(LOCAL_FILE)
         
-        print(f"✅ Downloaded to: {LOCAL_FILE}")
-        
-        # Show file info
-        size_mb = LOCAL_FILE.stat().st_size / (1024 * 1024)
-        print(f"   Size: {size_mb:.2f} MB")
-        
+        print("✅ Extract completed")
         return str(LOCAL_FILE)
         
     except subprocess.CalledProcessError as e:
-        print(f"❌ Kaggle download error: {e.stderr}")
+        print(f"❌ FAILED: Kaggle download error - {e.stderr}")
         return None
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"❌ FAILED: {e}")
         return None
 
 def get_nutrition_stats(file_path: str) -> dict:
