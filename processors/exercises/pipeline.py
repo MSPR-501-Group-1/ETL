@@ -2,10 +2,10 @@
 Complete ETL pipeline orchestrator for exercises
 """
 from spark.session import get_spark, stop_spark
-from processors.exercises.extract import download_exercises
 from processors.exercises.transform import transform_exercises
 from processors.exercises.load import load_exercises
-from processors.exercises.config import LOCAL_FILE
+from processors.exercises.config import LOCAL_FILE, URLS
+from utils.github.extract import download_github
 from utils.logger import get_logger, log_pipeline_start, log_pipeline_success, log_pipeline_failure
 import traceback
 
@@ -19,7 +19,8 @@ def run_pipeline():
     try:
         # Step 1: Extract
         logger.info("📥 EXTRACT: Downloading exercises data...")
-        data = download_exercises()
+        data = download_github(LOCAL_FILE, URLS, force_download=True)
+
         
         if not data:
             log_pipeline_failure(logger, "Exercises", "Extraction failed")

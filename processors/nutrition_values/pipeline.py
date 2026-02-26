@@ -3,10 +3,10 @@ Complete ETL pipeline orchestrator for nutrition values
 Source: Kaggle - nutritional-values-for-common-foods-and-products
 """
 from spark.session import get_spark, stop_spark
-from processors.nutrition_values.extract import download_nutrition_values
 from processors.nutrition_values.transform import transform_nutrition_values
 from processors.nutrition_values.load import load_nutrition_values
-from processors.nutrition_values.config import LOCAL_FILE
+from processors.nutrition_values.config import LOCAL_FILE, LOCAL_ZIP, RAW_DIR, KAGGLE_DATASET
+from utils.kaggle.extract import download_kaggle
 from utils.logger import get_logger, log_pipeline_start, log_pipeline_success, log_pipeline_failure
 import traceback
 
@@ -20,7 +20,8 @@ def run_pipeline():
     try:
         # Step 1: Extract
         logger.info("📥 EXTRACT: Downloading nutrition values data...")
-        file_path = download_nutrition_values()
+        file_path = download_kaggle(LOCAL_ZIP, LOCAL_FILE, RAW_DIR, KAGGLE_DATASET)
+    
         
         if not file_path:
             log_pipeline_failure(logger, "Nutrition Values", "Extraction failed")

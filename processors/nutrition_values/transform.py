@@ -35,7 +35,7 @@ def map_to_mcd_schema(df: DataFrame) -> DataFrame:
     df_with_name = df.withColumn(
         "name",
         when(col("name").isNotNull(), trim(col("name")))
-        .when(col("description").isNotNull(), trim(col("description")))
+        # .when(col("description").isNotNull(), trim(col("description")))
         .otherwise(lit("Unknown"))
     ).withColumn(
         "brand",

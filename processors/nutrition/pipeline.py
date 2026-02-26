@@ -2,10 +2,10 @@
 Complete ETL pipeline orchestrator for nutrition
 """
 from spark.session import get_spark, stop_spark
-from processors.nutrition.extract import download_nutrition
 from processors.nutrition.transform import transform_nutrition
 from processors.nutrition.load import load_nutrition
-from processors.nutrition.config import LOCAL_FILE
+from processors.nutrition.config import LOCAL_FILE, LOCAL_ZIP, RAW_DIR, KAGGLE_DATASET
+from utils.kaggle.extract import download_kaggle
 from utils.logger import get_logger, log_pipeline_start, log_pipeline_success, log_pipeline_failure
 import traceback
 
@@ -19,7 +19,8 @@ def run_pipeline():
     try:
         # Step 1: Extract
         logger.info("📥 EXTRACT: Downloading nutrition data...")
-        file_path = download_nutrition()
+        file_path = download_kaggle(LOCAL_ZIP, LOCAL_FILE, RAW_DIR, KAGGLE_DATASET)
+    
         
         if not file_path:
             log_pipeline_failure(logger, "Nutrition", "Extraction failed")

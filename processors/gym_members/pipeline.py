@@ -3,10 +3,10 @@ Complete ETL pipeline orchestrator for gym members
 Loads USER, USER_PROFILE, and USER_METRICS tables
 """
 from spark.session import get_spark, stop_spark
-from processors.gym_members.extract import download_gym_members
 from processors.gym_members.transform import transform_gym_members
 from processors.gym_members.load import load_gym_members
-from processors.gym_members.config import LOCAL_FILE
+from processors.gym_members.config import KAGGLE_DATASET, LOCAL_FILE, LOCAL_ZIP, RAW_DIR
+from utils.kaggle.extract import download_kaggle
 from utils.logger import get_logger, log_pipeline_start, log_pipeline_success, log_pipeline_failure
 import traceback
 
@@ -20,7 +20,7 @@ def run_pipeline():
     try:
         # Step 1: Extract
         logger.info("📥 EXTRACT: Downloading gym members data...")
-        success = download_gym_members()
+        success = download_kaggle(LOCAL_ZIP, LOCAL_FILE, RAW_DIR, KAGGLE_DATASET)
         
         if not success:
             log_pipeline_failure(logger, "Gym Members", "Extraction failed")

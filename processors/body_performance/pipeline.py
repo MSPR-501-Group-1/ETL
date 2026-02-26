@@ -3,10 +3,10 @@ Complete ETL pipeline orchestrator for body performance
 Loads WORKOUT_SESSION and SESSION_DETAIL tables
 """
 from spark.session import get_spark, stop_spark
-from processors.body_performance.extract import download_body_performance
 from processors.body_performance.transform import transform_body_performance
 from processors.body_performance.load import load_body_performance
-from processors.body_performance.config import LOCAL_FILE
+from processors.body_performance.config import KAGGLE_DATASET, LOCAL_FILE, RAW_DIR, LOCAL_ZIP
+from utils.kaggle.extract import download_kaggle
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -22,7 +22,8 @@ def run_pipeline():
     try:
         # Step 1: Extract
         logger.info("📥 EXTRACT: Downloading body performance data...")
-        success = download_body_performance()
+        success = download_kaggle(LOCAL_ZIP, LOCAL_FILE, RAW_DIR, KAGGLE_DATASET)
+    
         
         if not success:
             log_pipeline_failure(logger, "Body Performance", "Extraction failed")

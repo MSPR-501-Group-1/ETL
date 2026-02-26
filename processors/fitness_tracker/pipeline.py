@@ -3,10 +3,10 @@ Complete ETL pipeline orchestrator for fitness tracker
 Loads ACTIVITY_TYPE and WORKOUT_SESSION tables
 """
 from spark.session import get_spark, stop_spark
-from processors.fitness_tracker.extract import download_fitness_tracker
 from processors.fitness_tracker.transform import transform_fitness_tracker
 from processors.fitness_tracker.load import load_fitness_tracker
-from processors.fitness_tracker.config import LOCAL_FILE
+from processors.fitness_tracker.config import KAGGLE_DATASET, LOCAL_FILE, LOCAL_ZIP, RAW_DIR
+from utils.kaggle.extract import download_kaggle
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -22,7 +22,8 @@ def run_pipeline():
     try:
         # Step 1: Extract
         logger.info("📥 EXTRACT: Downloading fitness tracker data...")
-        success = download_fitness_tracker()
+        success = download_kaggle(LOCAL_ZIP, LOCAL_FILE, RAW_DIR, KAGGLE_DATASET)
+
         
         if not success:
             log_pipeline_failure(logger, "Fitness Tracker", "Extraction failed")

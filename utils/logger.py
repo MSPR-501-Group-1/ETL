@@ -2,6 +2,7 @@
 Centralized logging configuration for ETL pipelines
 """
 import logging
+from pyspark.logger import PySparkLogger
 import sys
 from pathlib import Path
 from datetime import datetime
