@@ -4,7 +4,7 @@ Extract fitness tracker data from Kaggle
 import sys
 from pathlib import Path
 from processors.fitness_tracker.config import KAGGLE_DATASET, LOCAL_FILE, RAW_DIR, LOCAL_ZIP
-from utils.extract import download_kaggle
+from utils.kaggle.extract import download_kaggle
 
 download_kaggle(LOCAL_ZIP, LOCAL_FILE, RAW_DIR, KAGGLE_DATASET)
 

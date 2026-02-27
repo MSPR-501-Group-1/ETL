@@ -7,12 +7,9 @@ from pyspark.sql.functions import (
 )
 from pyspark.sql.types import StringType
 import uuid
+from utils.transform import load_raw_data
 from utils.uuid_utils import food_uuid_udf
 
-def load_raw_data(spark, csv_path: str) -> DataFrame:
-    """Load raw CSV data with Spark"""
-    df = spark.read.csv(csv_path, header=True, inferSchema=True)
-    return df
 
 def map_to_mcd_schema(df: DataFrame) -> DataFrame:
     """

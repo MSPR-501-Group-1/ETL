@@ -12,11 +12,7 @@ from pyspark.sql.types import StringType
 from pyspark.sql.window import Window
 import uuid
 from utils.uuid_utils import session_uuid_udf, detail_uuid_udf, activity_uuid_udf, generate_user_uuid, exercise_uuid_udf
-
-def load_raw_data(spark, csv_path: str) -> DataFrame:
-    """Load raw CSV data with Spark"""
-    df = spark.read.csv(csv_path, header=True, inferSchema=True)
-    return df
+from utils.transform import load_raw_data
 
 def transform_to_workout_session_performance(df: DataFrame, df_users: DataFrame, df_activities: DataFrame) -> DataFrame:
     """

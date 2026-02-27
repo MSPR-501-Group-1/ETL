@@ -12,6 +12,7 @@ from pyspark.sql.types import StringType, DateType
 import uuid
 from datetime import datetime, timedelta
 import random
+from utils.transform import load_raw_data
 from utils.uuid_utils import user_uuid_udf, profile_uuid_udf, metric_uuid_udf
 
 # UDF generators (non-UUID)
@@ -56,10 +57,6 @@ first_name_udf = udf(generate_first_name, StringType())
 last_name_udf = udf(generate_last_name, StringType())
 birth_date_udf = udf(calculate_birth_date, DateType())
 
-def load_raw_data(spark, csv_path: str) -> DataFrame:
-    """Load raw CSV data with Spark"""
-    df = spark.read.csv(csv_path, header=True, inferSchema=True)
-    return df
 
 def transform_to_user_table(df: DataFrame) -> DataFrame:
     """

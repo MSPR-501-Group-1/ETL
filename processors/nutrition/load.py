@@ -1,38 +1,10 @@
 """
 Load transformed nutrition data to PostgreSQL
 """
-import os
 from pyspark.sql import DataFrame
-from processors.exercises.load import (
-    get_db_config, get_jdbc_url, 
-    save_to_parquet, save_to_csv, log_etl_execution
-)
 
-def save_to_postgres(df: DataFrame, table_name: str = "food"):
-    """Save DataFrame to PostgreSQL using JDBC"""
-    config = get_db_config()
-    jdbc_url = get_jdbc_url()
-    
-    connection_properties = {
-        "user": config["user"],
-        "password": config["password"],
-        "driver": "org.postgresql.Driver",
-        "stringtype": "unspecified"  # Allow PostgreSQL to cast strings to UUIDs
-    }
-    
-    try:
-        df.write.jdbc(
-            url=jdbc_url,
-            table=table_name,
-            mode="overwrite",
-            properties=connection_properties
-        )
-        
-        return True
-        
-    except Exception as e:
-        print(f"❌ FAILED: PostgreSQL load error - {e}")
-        return False
+from utils.load import log_etl_execution, save_to_csv, save_to_parquet, save_to_postgres
+
 
 def load_nutrition(spark, df: DataFrame) -> bool:
     """Complete load pipeline: Parquet + CSV + PostgreSQL"""
@@ -53,16 +25,16 @@ def load_nutrition(spark, df: DataFrame) -> bool:
         success = save_to_postgres(df, "food")
         
         if success:
-            log_etl_execution(spark, "SUCCESS", df.count())
+            log_etl_execution(spark, "SUCCESS", df.count(), SOURCE_NAME="nutrition")
             print("✅ Load completed")
             return True
         else:
-            log_etl_execution(spark, "FAILED", 0, "PostgreSQL load failed")
+            log_etl_execution(spark, "FAILED", 0, "PostgreSQL load failed", SOURCE_NAME="nutrition")
             return False
             
     except Exception as e:
         print(f"❌ FAILED: Load error - {e}")
-        log_etl_execution(spark, "FAILED", 0, str(e))
+        log_etl_execution(spark, "FAILED", 0, str(e), SOURCE_NAME="nutrition")
         return False
 
 if __name__ == "__main__":

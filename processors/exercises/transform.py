@@ -8,6 +8,7 @@ from pyspark.sql.functions import (
 )
 from pyspark.sql.types import StringType
 import uuid
+from utils.transform import load_raw_data
 from utils.uuid_utils import exercise_uuid_udf
 
 def load_raw_data(spark, json_path: str) -> DataFrame:

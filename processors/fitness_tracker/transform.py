@@ -12,11 +12,7 @@ from pyspark.sql.types import StringType
 from pyspark.sql.window import Window
 import uuid
 from utils.uuid_utils import activity_uuid_udf, session_uuid_udf, user_uuid_udf, generate_user_uuid
-
-def load_raw_data(spark, csv_path: str) -> DataFrame:
-    """Load raw CSV data with Spark"""
-    df = spark.read.csv(csv_path, header=True, inferSchema=True)
-    return df
+from utils.transform import load_raw_data
 
 def create_activity_types(spark) -> DataFrame:
     """

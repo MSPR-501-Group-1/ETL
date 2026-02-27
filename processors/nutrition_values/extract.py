@@ -4,7 +4,7 @@ Dataset: trolukovich/nutritional-values-for-common-foods-and-products
 """
 import sys
 from pathlib import Path
-from utils.kaggle.extract import check_kaggle_credentials, download_kaggle, extract_zip_file
+from utils.kaggle.extract import download_kaggle
 from processors.nutrition_values.config import (
     KAGGLE_DATASET, RAW_DIR, LOCAL_ZIP, LOCAL_FILE
 )

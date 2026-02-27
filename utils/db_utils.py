@@ -10,21 +10,22 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-def get_jdbc_url() -> str:
-    """Build PostgreSQL JDBC URL from environment variables"""
-    host = os.getenv("DB_HOST", "localhost")
-    port = os.getenv("DB_PORT", "5432")
-    dbname = os.getenv("DB_NAME", "healthai_db")
-    return f"jdbc:postgresql://{host}:{port}/{dbname}"
-
-def get_db_properties() -> Dict[str, str]:
-    """Get PostgreSQL connection properties from environment"""
+def get_db_config() -> dict:
+    """Get database configuration from environment"""
     return {
+        "host": os.getenv("DB_HOST", "localhost"),
+        "port": os.getenv("DB_PORT", "5432"),
+        "database": os.getenv("DB_NAME", "healthai_db"),
         "user": os.getenv("DB_USER", "healthai"),
         "password": os.getenv("DB_PASSWORD", "password"),
         "driver": "org.postgresql.Driver",
         "stringtype": "unspecified"  # Allow PostgreSQL to cast strings to UUIDs
     }
+
+def get_jdbc_url() -> str:
+    """Build PostgreSQL JDBC URL"""
+    config = get_db_config()
+    return f"jdbc:postgresql://{config['host']}:{config['port']}/{config['database']}"
 
 def read_table_with_retry(
     spark: SparkSession, 
@@ -45,7 +46,7 @@ def read_table_with_retry(
         DataFrame or None if table doesn't exist or read fails
     """
     jdbc_url = get_jdbc_url()
-    db_properties = get_db_properties()
+    db_properties = get_db_config()
     
     for attempt in range(max_retries):
         try:
@@ -125,7 +126,7 @@ def load_with_idempotency(
         True if successful, False otherwise
     """
     jdbc_url = get_jdbc_url()
-    db_properties = get_db_properties()
+    db_properties = get_db_config()
     
     try:
         # Get IDs to insert
