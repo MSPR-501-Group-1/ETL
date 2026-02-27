@@ -13,7 +13,6 @@ import traceback
 logger = get_logger(__name__)
 
 def run_pipeline():
-    """Execute complete ETL pipeline: Extract -> Transform -> Load"""
     
     log_pipeline_start(logger, "🏋️  Exercises Pipeline")
     

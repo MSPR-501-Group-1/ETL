@@ -12,7 +12,6 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 def run_pipeline():
-    """Execute complete ETL pipeline: Extract -> Transform -> Load"""
     
     from utils.logger import log_pipeline_start, log_pipeline_success, log_pipeline_failure
     import traceback

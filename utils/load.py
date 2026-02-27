@@ -15,8 +15,38 @@ import psycopg2
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import lit
 
+
 from utils.logger import get_logger
 from utils.db_utils import DB_TABLE_SCHEMAS, get_db_config
+import os
+
+def init_db_schema(sql_path: str = None) -> bool:
+
+    config = get_db_config()
+    if sql_path is None:
+        sql_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "database", "init.sql")
+    if not os.path.exists(sql_path):
+        logger.error(f"init_db_schema: SQL file not found: {sql_path}")
+        return False
+    try:
+        with open(sql_path, "r", encoding="utf-8") as f:
+            sql = f.read()
+        conn = psycopg2.connect(
+            host=config["host"],
+            port=int(config["port"]),
+            dbname=config["database"],
+            user=config["user"],
+            password=config["password"],
+        )
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(sql)
+        conn.close()
+        logger.info(f"✅ Database schema initialized from {sql_path}")
+        return True
+    except Exception as e:
+        logger.error(f"init_db_schema failed: {e}")
+        return False
 
 logger = get_logger(__name__)
 

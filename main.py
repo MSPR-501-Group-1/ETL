@@ -1,29 +1,17 @@
-"""
-HealthAI Coach - ETL Main Entry Point
-"""
 import sys
-import argparse
 import warnings
-
-# Suppress all warnings
 warnings.filterwarnings('ignore')
-
 from pathlib import Path
-
+from collections import defaultdict
 from processors.exercises.pipeline import run_pipeline as run_exercises_pipeline
 from processors.nutrition.pipeline import run_pipeline as run_nutrition_pipeline
 from processors.nutrition_values.pipeline import run_pipeline as run_nutrition_values_pipeline
 from processors.gym_members.pipeline import run_pipeline as run_gym_members_pipeline
 from processors.body_performance.pipeline import run_pipeline as run_body_performance_pipeline
 from processors.fitness_tracker.pipeline import run_pipeline as run_fitness_tracker_pipeline
-from processors.exercises.config import PROCESSED_DIR as EXERCISES_DIR
-from processors.nutrition.config import PROCESSED_DIR as NUTRITION_DIR
-from processors.nutrition_values.config import PROCESSED_DIR as NUTRITION_VALUES_DIR
-from processors.gym_members.config import PROCESSED_DIR as GYM_MEMBERS_DIR
-from processors.fitness_tracker.config import PROCESSED_DIR as FITNESS_TRACKER_DIR
-from processors.body_performance.config import PROCESSED_DIR as BODY_PERFORMANCE_DIR
-from utils.load import aggregate_to_csv, load_csv_to_postgres
+from utils.load import aggregate_to_csv, load_csv_to_postgres, init_db_schema
 from utils.logger import get_logger
+from spark.session import get_spark, stop_spark
 
 logger = get_logger(__name__)
 
@@ -43,59 +31,56 @@ def run_all_pipelines_ordered():
     
     failed_pipelines = []
     
-    # Stage 1: Gym Members (creates users - dependency for others)
     logger.info("\n👥 STAGE 1: Running Gym Members pipeline...")
     try:
         if not run_gym_members_pipeline():
             failed_pipelines.append("Gym Members")
             logger.error("CRITICAL: Gym Members failed - dependent pipelines may fail")
         else:
-            logger.info("✅ Users loaded successfully")
+            logger.info("✅ Users transformed successfully")
     except Exception as e:
         logger.error(f"Gym Members pipeline failed: {e}")
         failed_pipelines.append("Gym Members")
         logger.error("CRITICAL: Cannot continue without users")
         return False, failed_pipelines
     
-    # Stage 2: Exercises
     logger.info("\n🏋️  STAGE 2: Running Exercises pipeline...")
     try:
         if not run_exercises_pipeline():
             failed_pipelines.append("Exercises")
         else:
-            logger.info("✅ Exercises loaded successfully")
+            logger.info("✅ Exercises transformed successfully")
     except Exception as e:
         logger.error(f"Exercises pipeline failed: {e}")
         failed_pipelines.append("Exercises")
     
-    # Stage 3: Fitness Tracker
     logger.info("\n📱 STAGE 3: Running Fitness Tracker pipeline...")
     try:
         if not run_fitness_tracker_pipeline():
             failed_pipelines.append("Fitness Tracker")
         else:
-            logger.info("✅ Workout sessions loaded successfully")
+            logger.info("✅ Workout sessions transformed successfully")
     except Exception as e:
         logger.error(f"Fitness Tracker pipeline failed: {e}")
         failed_pipelines.append("Fitness Tracker")
 
-    # Stage 4: Body Performance
     logger.info("\n💪 STAGE 4: Running Body Performance pipeline...")
     try:
         if not run_body_performance_pipeline():
             failed_pipelines.append("Body Performance")
             logger.error("CRITICAL: Body Performance failed")
         else:
-            logger.info("✅ Activity types loaded successfully")
+            logger.info("✅ Activity types transformed successfully")
     except Exception as e:
         logger.error(f"Body Performance pipeline failed: {e}")
         failed_pipelines.append("Body Performance")
     
-    # Stage 5: Nutrition
     logger.info("\n🍎 STAGE 5: Running Nutrition pipeline...")
     try:
         if not run_nutrition_pipeline():
             failed_pipelines.append("Nutrition")
+        else:
+            logger.info("✅ Foods transformed successfully")
     except Exception as e:
         logger.error(f"Nutrition pipeline failed: {e}")
         failed_pipelines.append("Nutrition")
@@ -104,60 +89,44 @@ def run_all_pipelines_ordered():
     try:
         if not run_nutrition_values_pipeline():
             failed_pipelines.append("Nutrition Values")
+        else:
+            logger.info("✅ Nutrition values transformed successfully")
     except Exception as e:
         logger.error(f"Nutrition Values pipeline failed: {e}")
         failed_pipelines.append("Nutrition Values")
 
-    # Stage 7: Aggregate individual CSVs per DB table and bulk-load into PostgreSQL
     logger.info("\n🗄️  STAGE 7: Aggregating CSVs and loading to PostgreSQL...")
     try:
-        from spark.session import get_spark, stop_spark
-
         spark = get_spark("ETL_Load")
+        processed_root = Path("data/processed")
+        table_dataframes = defaultdict(list)
 
-        def _read_csv(path: Path):
-            if path.exists():
-                return spark.read.option("header", "true").csv(str(path))
-            logger.warning(f"CSV not found, skipping: {path}")
-            return None
-
-        table_dataframes = {}
-
-        df = _read_csv(EXERCISES_DIR / "exercise")
-        if df is not None:
-            table_dataframes["exercise"] = [df]
-
-        # food — union of both nutrition sources
-        food_dfs = [df for df in (
-            _read_csv(NUTRITION_DIR / "food"),
-            _read_csv(NUTRITION_VALUES_DIR / "food"),
-        ) if df is not None]
-        if food_dfs:
-            table_dataframes["food"] = food_dfs
-
-        for table in ("user", "user_profile", "user_metrics"):
-            df = _read_csv(GYM_MEMBERS_DIR / table)
-            if df is not None:
-                table_dataframes[table] = [df]
-
-        df = _read_csv(FITNESS_TRACKER_DIR / "activity_type")
-        if df is not None:
-            table_dataframes["activity_type"] = [df]
-
-        # workout_session — union of fitness_tracker + body_performance
-        workout_dfs = [df for df in (
-            _read_csv(FITNESS_TRACKER_DIR / "workout_session"),
-            _read_csv(BODY_PERFORMANCE_DIR / "workout_session"),
-        ) if df is not None]
-        if workout_dfs:
-            table_dataframes["workout_session"] = workout_dfs
-
-        df = _read_csv(BODY_PERFORMANCE_DIR / "session_detail")
-        if df is not None:
-            table_dataframes["session_detail"] = [df]
+        # Scan all subfolders in data/processed (except _aligned)
+        for subdir in processed_root.iterdir():
+            if not subdir.is_dir() or subdir.name.startswith("_"):
+                continue
+            # Find all CSV folders/files in each subdir
+            for item in subdir.iterdir():
+                # Spark CSV output: folder with part-*.csv inside
+                if item.is_dir():
+                    part_files = list(item.glob("part-*.csv"))
+                    if part_files:
+                        df = spark.read.option("header", "true").csv(str(item))
+                        table_dataframes[item.name].append(df)
+                # Direct CSV file (rare, but support it)
+                elif item.suffix == ".csv":
+                    df = spark.read.option("header", "true").csv(str(item))
+                    table_dataframes[item.stem].append(df)
 
         global_csv_dir = Path("data/processed/_aligned")
         csv_paths = aggregate_to_csv(table_dataframes, global_csv_dir)
+
+        # --- INIT DB SCHEMA ---
+        if not init_db_schema():
+            logger.error("❌ Failed to initialize database schema from init.sql")
+            failed_pipelines.append("DB Schema Init")
+            stop_spark()
+            return False, failed_pipelines
 
         load_order = [
             "user", "exercise", "food",
@@ -196,123 +165,13 @@ def run_all_pipelines_ordered():
 
 def main():
     """Main ETL orchestrator"""
-    parser = argparse.ArgumentParser(description='HealthAI Coach ETL Pipeline')
-    parser.add_argument(
-        '--pipeline',
-        choices=['exercises', 'nutrition', 'nutrition-values', 'nutrition-all', 
-                 'gym-members', 'body-performance', 'fitness-tracker', 'all'],
-        default='all',
-        help='Pipeline to run (nutrition-all runs both nutrition sources, all runs everything)'
-    )
-    
-    args = parser.parse_args()
-    
-    # If running all pipelines, use ordered execution
-    if args.pipeline == 'all':
-        logger.info("🔧 Initializing distributed ETL with ordered pipeline execution...")
-        success, failed_pipelines = run_all_pipelines_ordered()
-        
-        if not success:
-            logger.error("ETL process completed with failures")
-            sys.exit(1)
-        
-        logger.info("🎉 ETL process completed successfully!")
-        sys.exit(0)
-    
-    # Individual pipeline execution
-    logger.info(f"🏥 HEALTHAI COACH - ETL PIPELINE: {args.pipeline.upper()}")
-    
-    success = True
-    failed_pipelines = []
-    
-    if args.pipeline == 'exercises':
-        logger.info("🏋️  Running EXERCISES pipeline...")
-        try:
-            if not run_exercises_pipeline():
-                success = False
-                failed_pipelines.append("Exercises")
-        except Exception as e:
-            logger.error(f"EXERCISES pipeline failed: {e}")
-            success = False
-            failed_pipelines.append("Exercises")
-    
-    elif args.pipeline == 'nutrition' or args.pipeline == 'nutrition-all':
-        logger.info("🍎 Running NUTRITION pipeline (Daily Food)...")
-        try:
-            if not run_nutrition_pipeline():
-                success = False
-                failed_pipelines.append("Nutrition")
-        except Exception as e:
-            logger.error(f"NUTRITION pipeline failed: {e}")
-            success = False
-            failed_pipelines.append("Nutrition")
-        
-        if args.pipeline == 'nutrition-all':
-            logger.info("🥗 Running NUTRITION VALUES pipeline (Common Foods)...")
-            try:
-                if not run_nutrition_values_pipeline():
-                    success = False
-                    failed_pipelines.append("Nutrition Values")
-            except Exception as e:
-                logger.error(f"NUTRITION VALUES pipeline failed: {e}")
-                success = False
-                failed_pipelines.append("Nutrition Values")
-    
-    elif args.pipeline == 'nutrition-values':
-        logger.info("🥗 Running NUTRITION VALUES pipeline (Common Foods)...")
-        try:
-            if not run_nutrition_values_pipeline():
-                success = False
-                failed_pipelines.append("Nutrition Values")
-        except Exception as e:
-            logger.error(f"NUTRITION VALUES pipeline failed: {e}")
-            success = False
-            failed_pipelines.append("Nutrition Values")
-    
-    elif args.pipeline == 'gym-members':
-        logger.info("👥 Running GYM MEMBERS pipeline...")
-        try:
-            if not run_gym_members_pipeline():
-                success = False
-                failed_pipelines.append("Gym Members")
-        except Exception as e:
-            logger.error(f"GYM MEMBERS pipeline failed: {e}")
-            success = False
-            failed_pipelines.append("Gym Members")
-    
-    elif args.pipeline == 'body-performance':
-        logger.info("💪 Running BODY PERFORMANCE pipeline...")
-        try:
-            if not run_body_performance_pipeline():
-                success = False
-                failed_pipelines.append("Body Performance")
-        except Exception as e:
-            logger.error(f"BODY PERFORMANCE pipeline failed: {e}")
-            success = False
-            failed_pipelines.append("Body Performance")
-    
-    elif args.pipeline == 'fitness-tracker':
-        logger.info("📱 Running FITNESS TRACKER pipeline...")
-        try:
-            if not run_fitness_tracker_pipeline():
-                success = False
-                failed_pipelines.append("Fitness Tracker")
-        except Exception as e:
-            logger.error(f"FITNESS TRACKER pipeline failed: {e}")
-            success = False
-            failed_pipelines.append("Fitness Tracker")
-    
-    if success:
-        logger.info("✅ ETL COMPLETED SUCCESSFULLY")
-    else:
-        logger.error("❌ ETL COMPLETED WITH FAILURES")
-        logger.error(f"   Failed pipelines: {', '.join(failed_pipelines)}")
-        if any(p in failed_pipelines for p in ["Nutrition", "Nutrition Values", "Gym Members", "Body Performance", "Fitness Tracker"]):
-            logger.info("\n💡 Note: Kaggle pipelines require credentials.")
-            logger.info("   Set KAGGLE_USERNAME and KAGGLE_KEY environment variables,")
-            logger.info("   or mount ~/.kaggle/kaggle.json in docker-compose.yml")
-    
-    sys.exit(0 if success else 1)
+    logger.info("🔧 Initializing distributed ETL with ordered pipeline execution...")
+    success, failed_pipelines = run_all_pipelines_ordered()
+    if not success:
+        logger.error("ETL process completed with failures")
+        sys.exit(1)
+    logger.info("🎉 ETL process completed successfully!")
+    sys.exit(0)
 
 if __name__ == "__main__":
     main()
