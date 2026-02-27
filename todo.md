@@ -12,3 +12,5 @@ Les pipelines par source ne prendront en charge que l'extract des données et le
 
 3) Ranger les utils et éviter les méthodes doublons
 
+4) Gérer les uuid pour les gym-members et body-performance pipeline
+

@@ -1,6 +1,3 @@
-"""
-Complete ETL pipeline orchestrator for exercises
-"""
 from spark.session import get_spark, stop_spark
 from processors.exercises.transform import transform_exercises
 from processors.exercises.config import LOCAL_FILE, URLS, PROCESSED_DIR

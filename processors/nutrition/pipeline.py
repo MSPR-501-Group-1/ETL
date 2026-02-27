@@ -1,6 +1,3 @@
-"""
-Complete ETL pipeline orchestrator for nutrition
-"""
 from spark.session import get_spark, stop_spark
 from processors.nutrition.transform import transform_nutrition
 from processors.nutrition.config import LOCAL_FILE, LOCAL_ZIP, RAW_DIR, KAGGLE_DATASET, PROCESSED_DIR

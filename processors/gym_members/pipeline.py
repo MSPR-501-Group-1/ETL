@@ -1,7 +1,3 @@
-"""
-Complete ETL pipeline orchestrator for gym members
-Loads USER, USER_PROFILE, and USER_METRICS tables
-"""
 from spark.session import get_spark, stop_spark
 from processors.gym_members.transform import transform_gym_members
 from processors.gym_members.config import KAGGLE_DATASET, LOCAL_FILE, LOCAL_ZIP, RAW_DIR, PROCESSED_DIR
@@ -36,21 +32,17 @@ def run_pipeline():
         
         # Step 2: Transform
         logger.info("🔄 TRANSFORM: Processing data...")
-        df_user, df_profile, df_metrics = transform_gym_members(spark, str(LOCAL_FILE))
+        df_transformed = transform_gym_members(spark, str(LOCAL_FILE))
         
-        if df_user is None or df_user.count() == 0:
+        if df_transformed is None or df_transformed.count() == 0:
             log_pipeline_failure(logger, "Gym Members", "Transformation produced no data")
             return False
         
-        user_count = df_user.count()
-        logger.info(f"✅ Transformed {user_count} users into 3 tables")
+        count = df_transformed.count()
         
-        # Step 3: Export to CSV
         logger.info("📦 Export to CSV...")
-        save_to_csv(df_user, str(PROCESSED_DIR / "user"))
-        save_to_csv(df_profile, str(PROCESSED_DIR / "user_profile"))
-        save_to_csv(df_metrics, str(PROCESSED_DIR / "user_metrics"))
-        log_pipeline_success(logger, "Gym Members", f"{user_count} users exported to CSV")
+        save_to_csv(df_transformed, str(PROCESSED_DIR / "user_metrics"))
+        log_pipeline_success(logger, "Gym Members", f"{count} users exported to CSV")
         return True
             
     except Exception as e:

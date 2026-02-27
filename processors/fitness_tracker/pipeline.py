@@ -1,7 +1,3 @@
-"""
-Complete ETL pipeline orchestrator for fitness tracker
-Loads ACTIVITY_TYPE and WORKOUT_SESSION tables
-"""
 from spark.session import get_spark, stop_spark
 from processors.fitness_tracker.transform import transform_fitness_tracker
 from processors.fitness_tracker.config import KAGGLE_DATASET, LOCAL_FILE, LOCAL_ZIP, RAW_DIR, PROCESSED_DIR
