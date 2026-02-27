@@ -4,9 +4,9 @@ Loads ACTIVITY_TYPE and WORKOUT_SESSION tables
 """
 from spark.session import get_spark, stop_spark
 from processors.fitness_tracker.transform import transform_fitness_tracker
-from processors.fitness_tracker.load import load_fitness_tracker
-from processors.fitness_tracker.config import KAGGLE_DATASET, LOCAL_FILE, LOCAL_ZIP, RAW_DIR
+from processors.fitness_tracker.config import KAGGLE_DATASET, LOCAL_FILE, LOCAL_ZIP, RAW_DIR, PROCESSED_DIR
 from utils.kaggle.extract import download_kaggle
+from utils.transform import save_to_csv
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -50,16 +50,12 @@ def run_pipeline():
         session_count = df_sessions.count()
         logger.info(f"✅ Transformed {activity_count} activity types and {session_count} sessions")
         
-        # Step 3: Load
-        logger.info("📦 LOAD: Writing to database...")
-        success = load_fitness_tracker(spark, df_activities, df_sessions)
-        
-        if success:
-            log_pipeline_success(logger, "Fitness Tracker", f"{activity_count} activities, {session_count} sessions loaded")
-            return True
-        else:
-            log_pipeline_failure(logger, "Fitness Tracker", "Load operation failed")
-            return False
+        # Step 3: Export to CSV
+        logger.info("📦 Export to CSV...")
+        save_to_csv(df_activities, str(PROCESSED_DIR / "activity_type"))
+        save_to_csv(df_sessions, str(PROCESSED_DIR / "workout_session"))
+        log_pipeline_success(logger, "Fitness Tracker", f"{activity_count} activities, {session_count} sessions exported to CSV")
+        return True
             
     except Exception as e:
         error_msg = f"{type(e).__name__}: {str(e)}"

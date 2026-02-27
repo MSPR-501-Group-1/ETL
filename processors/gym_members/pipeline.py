@@ -4,9 +4,9 @@ Loads USER, USER_PROFILE, and USER_METRICS tables
 """
 from spark.session import get_spark, stop_spark
 from processors.gym_members.transform import transform_gym_members
-from processors.gym_members.load import load_gym_members
-from processors.gym_members.config import KAGGLE_DATASET, LOCAL_FILE, LOCAL_ZIP, RAW_DIR
+from processors.gym_members.config import KAGGLE_DATASET, LOCAL_FILE, LOCAL_ZIP, RAW_DIR, PROCESSED_DIR
 from utils.kaggle.extract import download_kaggle
+from utils.transform import save_to_csv
 from utils.logger import get_logger, log_pipeline_start, log_pipeline_success, log_pipeline_failure
 import traceback
 
@@ -46,16 +46,13 @@ def run_pipeline():
         user_count = df_user.count()
         logger.info(f"✅ Transformed {user_count} users into 3 tables")
         
-        # Step 3: Load
-        logger.info("📦 LOAD: Writing to database...")
-        success = load_gym_members(spark, df_user, df_profile, df_metrics)
-        
-        if success:
-            log_pipeline_success(logger, "Gym Members", f"{user_count} users loaded")
-            return True
-        else:
-            log_pipeline_failure(logger, "Gym Members", "Load operation failed")
-            return False
+        # Step 3: Export to CSV
+        logger.info("📦 Export to CSV...")
+        save_to_csv(df_user, str(PROCESSED_DIR / "user"))
+        save_to_csv(df_profile, str(PROCESSED_DIR / "user_profile"))
+        save_to_csv(df_metrics, str(PROCESSED_DIR / "user_metrics"))
+        log_pipeline_success(logger, "Gym Members", f"{user_count} users exported to CSV")
+        return True
             
     except Exception as e:
         error_msg = f"{type(e).__name__}: {str(e)}"

@@ -8,12 +8,21 @@ import warnings
 # Suppress all warnings
 warnings.filterwarnings('ignore')
 
+from pathlib import Path
+
 from processors.exercises.pipeline import run_pipeline as run_exercises_pipeline
 from processors.nutrition.pipeline import run_pipeline as run_nutrition_pipeline
 from processors.nutrition_values.pipeline import run_pipeline as run_nutrition_values_pipeline
 from processors.gym_members.pipeline import run_pipeline as run_gym_members_pipeline
 from processors.body_performance.pipeline import run_pipeline as run_body_performance_pipeline
 from processors.fitness_tracker.pipeline import run_pipeline as run_fitness_tracker_pipeline
+from processors.exercises.config import PROCESSED_DIR as EXERCISES_DIR
+from processors.nutrition.config import PROCESSED_DIR as NUTRITION_DIR
+from processors.nutrition_values.config import PROCESSED_DIR as NUTRITION_VALUES_DIR
+from processors.gym_members.config import PROCESSED_DIR as GYM_MEMBERS_DIR
+from processors.fitness_tracker.config import PROCESSED_DIR as FITNESS_TRACKER_DIR
+from processors.body_performance.config import PROCESSED_DIR as BODY_PERFORMANCE_DIR
+from utils.load import aggregate_to_csv, load_csv_to_postgres
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -27,9 +36,10 @@ def run_all_pipelines_ordered():
     4. body_performance
     5. nutrition
     6. nutrition_values
+    7. aggregate CSVs → load to PostgreSQL
     """
     logger.info("🏥 HEALTHAI COACH - ORCHESTRATED ETL PIPELINE")
-    logger.info("Pipeline Order: Gym Members → Exercises → Fitness Tracker → Body Performance → Nutrition → Nutrition Values")
+    logger.info("Pipeline Order: Gym Members → Exercises → Fitness Tracker → Body Performance → Nutrition → Nutrition Values → PostgreSQL Load")
     
     failed_pipelines = []
     
@@ -97,7 +107,82 @@ def run_all_pipelines_ordered():
     except Exception as e:
         logger.error(f"Nutrition Values pipeline failed: {e}")
         failed_pipelines.append("Nutrition Values")
-    
+
+    # Stage 7: Aggregate individual CSVs per DB table and bulk-load into PostgreSQL
+    logger.info("\n🗄️  STAGE 7: Aggregating CSVs and loading to PostgreSQL...")
+    try:
+        from spark.session import get_spark, stop_spark
+
+        spark = get_spark("ETL_Load")
+
+        def _read_csv(path: Path):
+            if path.exists():
+                return spark.read.option("header", "true").csv(str(path))
+            logger.warning(f"CSV not found, skipping: {path}")
+            return None
+
+        table_dataframes = {}
+
+        df = _read_csv(EXERCISES_DIR / "exercise")
+        if df is not None:
+            table_dataframes["exercise"] = [df]
+
+        # food — union of both nutrition sources
+        food_dfs = [df for df in (
+            _read_csv(NUTRITION_DIR / "food"),
+            _read_csv(NUTRITION_VALUES_DIR / "food"),
+        ) if df is not None]
+        if food_dfs:
+            table_dataframes["food"] = food_dfs
+
+        for table in ("user", "user_profile", "user_metrics"):
+            df = _read_csv(GYM_MEMBERS_DIR / table)
+            if df is not None:
+                table_dataframes[table] = [df]
+
+        df = _read_csv(FITNESS_TRACKER_DIR / "activity_type")
+        if df is not None:
+            table_dataframes["activity_type"] = [df]
+
+        # workout_session — union of fitness_tracker + body_performance
+        workout_dfs = [df for df in (
+            _read_csv(FITNESS_TRACKER_DIR / "workout_session"),
+            _read_csv(BODY_PERFORMANCE_DIR / "workout_session"),
+        ) if df is not None]
+        if workout_dfs:
+            table_dataframes["workout_session"] = workout_dfs
+
+        df = _read_csv(BODY_PERFORMANCE_DIR / "session_detail")
+        if df is not None:
+            table_dataframes["session_detail"] = [df]
+
+        global_csv_dir = Path("data/processed/_aligned")
+        csv_paths = aggregate_to_csv(table_dataframes, global_csv_dir)
+
+        load_order = [
+            "user", "exercise", "food",
+            "activity_type", "user_profile", "user_metrics",
+            "workout_session", "session_detail",
+        ]
+        load_failures = []
+        for table in load_order:
+            if table not in csv_paths:
+                continue
+            if not load_csv_to_postgres(csv_paths[table], table):
+                load_failures.append(table)
+
+        stop_spark()
+
+        if load_failures:
+            logger.error(f"❌ Failed to load tables: {', '.join(load_failures)}")
+            failed_pipelines.append("PostgreSQL Load")
+        else:
+            logger.info("✅ All tables loaded into PostgreSQL successfully")
+
+    except Exception as e:
+        logger.error(f"Stage 7 (PostgreSQL load) failed: {e}")
+        failed_pipelines.append("PostgreSQL Load")
+
     # Final summary
     success = len(failed_pipelines) == 0
     if success:

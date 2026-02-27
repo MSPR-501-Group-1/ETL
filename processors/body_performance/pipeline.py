@@ -4,9 +4,9 @@ Loads WORKOUT_SESSION and SESSION_DETAIL tables
 """
 from spark.session import get_spark, stop_spark
 from processors.body_performance.transform import transform_body_performance
-from processors.body_performance.load import load_body_performance
-from processors.body_performance.config import KAGGLE_DATASET, LOCAL_FILE, RAW_DIR, LOCAL_ZIP
+from processors.body_performance.config import KAGGLE_DATASET, LOCAL_FILE, RAW_DIR, LOCAL_ZIP, PROCESSED_DIR
 from utils.kaggle.extract import download_kaggle
+from utils.transform import save_to_csv
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -50,16 +50,13 @@ def run_pipeline():
         detail_count = df_details.count() if df_details else 0
         logger.info(f"✅ Transformed {session_count} sessions and {detail_count} details")
         
-        # Step 3: Load
-        logger.info("📦 LOAD: Writing to database...")
-        success = load_body_performance(spark, df_sessions, df_details)
-        
-        if success:
-            log_pipeline_success(logger, "Body Performance", f"{session_count} sessions, {detail_count} details loaded")
-            return True
-        else:
-            log_pipeline_failure(logger, "Body Performance", "Load operation failed")
-            return False
+        # Step 3: Export to CSV
+        logger.info("📦 Export to CSV...")
+        save_to_csv(df_sessions, str(PROCESSED_DIR / "workout_session"))
+        if df_details is not None:
+            save_to_csv(df_details, str(PROCESSED_DIR / "session_detail"))
+        log_pipeline_success(logger, "Body Performance", f"{session_count} sessions, {detail_count} details exported to CSV")
+        return True
             
     except Exception as e:
         error_msg = f"{type(e).__name__}: {str(e)}"

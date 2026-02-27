@@ -3,9 +3,10 @@ Complete ETL pipeline orchestrator for exercises
 """
 from spark.session import get_spark, stop_spark
 from processors.exercises.transform import transform_exercises
-from processors.exercises.load import load_exercises
-from processors.exercises.config import LOCAL_FILE, URLS
+from processors.exercises.config import LOCAL_FILE, URLS, PROCESSED_DIR
 from utils.github.extract import download_github
+from utils.transform import save_to_csv
+
 from utils.logger import get_logger, log_pipeline_start, log_pipeline_success, log_pipeline_failure
 import traceback
 
@@ -39,19 +40,12 @@ def run_pipeline():
             return False
         
         count = df_transformed.count()
-        logger.info(f"✅ Transformed {count} exercises")
         
-        # Step 3: Load
-        logger.info("📦 LOAD: Writing to database...")
-        success = load_exercises(spark, df_transformed)
-        
-        if success:
-            log_pipeline_success(logger, "Exercises", f"{count} exercises loaded")
-            return True
-        else:
-            log_pipeline_failure(logger, "Exercises", "Load operation failed")
-            return False
-            
+        logger.info("📦 Export to CSV...")
+        save_to_csv(df_transformed, str(PROCESSED_DIR / "exercise"))
+        logger.info(f"✅ Exported {count} exercises to CSV")
+        return True
+
     except Exception as e:
         error_msg = f"{type(e).__name__}: {str(e)}"
         logger.error(f"Exception occurred: {error_msg}")
