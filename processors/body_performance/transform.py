@@ -1,22 +1,28 @@
 from pyspark.sql.functions import (
-    col, trim, upper, when, lit, udf, current_date, current_timestamp, round as spark_round
+    col, trim, upper, when, lit, udf, current_date, current_timestamp,
+    round as spark_round, concat
 )
 from pyspark.sql.types import StringType, DateType
 from datetime import datetime
 from utils.transform import load_raw_data
+from utils.uuid_utils import user_uuid_udf, profile_uuid_udf, metric_uuid_udf
 
-def generate_first_name(gender, row_idx):
+def generate_first_name(gender, key):
+    """Generate deterministic first name from gender and row-key hash."""
     male_names = ["John", "Michael", "David", "James", "Robert", "William", "Richard", "Thomas", "Charles", "Daniel"]
     female_names = ["Mary", "Jennifer", "Linda", "Patricia", "Elizabeth", "Susan", "Jessica", "Sarah", "Karen", "Nancy"]
+    seed = int(key[:8], 16) if key else 0
     if gender and gender.upper() == 'M':
-        return male_names[hash(f"first{row_idx}") % len(male_names)]
+        return male_names[seed % len(male_names)]
     else:
-        return female_names[hash(f"first{row_idx}") % len(female_names)]
+        return female_names[seed % len(female_names)]
 
-def generate_last_name(row_idx):
+def generate_last_name(key):
+    """Generate deterministic last name from row-key hash."""
     last_names = ["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis", "Rodriguez", "Martinez",
                   "Wilson", "Anderson", "Taylor", "Thomas", "Moore", "Jackson", "Martin", "Lee", "Thompson", "White"]
-    return last_names[hash(f"last{row_idx}") % len(last_names)]
+    seed = int(key[:8], 16) if key else 0
+    return last_names[seed % len(last_names)]
 
 first_name_udf = udf(generate_first_name, StringType())
 last_name_udf = udf(generate_last_name, StringType())
@@ -30,16 +36,20 @@ def transform_body_performance(spark, csv_path: str):
 
     df_raw = load_raw_data(spark, csv_path)
 
-    # Add synthetic fields (first_name, last_name)
-    from pyspark.sql.window import Window
-    from pyspark.sql.functions import row_number, monotonically_increasing_id
-    window = Window.orderBy(monotonically_increasing_id())
-    df_with_rownum = df_raw.withColumn("row_num", row_number().over(window))
+    # Compute a stable row key from all source columns so that user_id (UUID v5
+    # of the email) is identical across re-runs for the same source row.
+    _key_cols = [
+        col("age"), col("gender"), col("height_cm"), col("weight_kg"),
+        col("body fat_%"), col("diastolic"), col("systolic"), col("gripForce"),
+        col("sit and bend forward_cm"), col("sit-ups counts"),
+        col("broad jump_cm"), col("class"),
+    ]
+    df_raw = df_raw.withColumn("row_key", md5(concat_ws("|", *_key_cols)))
 
-    df = df_with_rownum.withColumn(
-        "first_name", first_name_udf(col("gender"), col("row_num").cast("string"))
+    df = df_raw.withColumn(
+        "first_name", first_name_udf(col("gender"), col("row_key"))
     ).withColumn(
-        "last_name", last_name_udf(col("row_num").cast("string"))
+        "last_name", last_name_udf(col("row_key"))
     ).withColumn(
         "birth_date", lit(None).cast(DateType())
     ).withColumn(
@@ -85,14 +95,29 @@ def transform_body_performance(spark, csv_path: str):
         "metrics_created_at", current_timestamp()
     )
 
-    # Select and order columns for clarity (all relevant fields, no IDs)
+    # Synthetic email — body performance has no real identity data, so we
+    # generate a deterministic address that will never collide with gym_members
+    # (different prefix). This lets us derive stable UUID v5 PKs/FKs.
+    df = df.withColumn(
+        "email", concat(lit("bp_"), col("row_key"), lit("@healthai.com"))
+    ).withColumn(
+        "password_hash", lit("hashed_password_placeholder")
+    ).withColumn(
+        "user_id", user_uuid_udf(col("email"))
+    ).withColumn(
+        "profile_id", profile_uuid_udf(col("user_id"))
+    ).withColumn(
+        "metric_id", metric_uuid_udf(col("user_id"), col("recorded_date").cast("string"))
+    )
+
+    # Select and order columns for clarity (all relevant fields, with IDs)
     output_cols = [
         # User table fields
-        "first_name", "last_name", "birth_date", "gender_code", "created_at", "is_active", "role_code",
+        "user_id", "email", "password_hash", "first_name", "last_name", "birth_date", "gender_code", "created_at", "is_active", "role_code",
         # User profile fields
-        "height_cm", "current_weight_kg", "activity_level_ref", "allergies_json", "preferences_json", "profile_updated_at",
+        "profile_id", "height_cm", "current_weight_kg", "activity_level_ref", "allergies_json", "preferences_json", "profile_updated_at",
         # User metrics fields
-        "recorded_date", "weight_kg", "body_fat_percentage", "steps", "calories_burned", "heart_rate_avg", "heart_rate_max", "sleep_hours", "metrics_created_at",
+        "metric_id", "recorded_date", "weight_kg", "body_fat_percentage", "steps", "calories_burned", "heart_rate_avg", "heart_rate_max", "sleep_hours", "metrics_created_at",
         # Raw performance fields
         "diastolic", "systolic", "gripForce", "sit and bend forward_cm", "sit-ups counts", "broad jump_cm", "class"
     ]

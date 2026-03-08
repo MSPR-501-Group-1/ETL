@@ -2,7 +2,7 @@ from spark.session import get_spark, stop_spark
 from processors.gym_members.transform import transform_gym_members
 from processors.gym_members.config import KAGGLE_DATASET, LOCAL_FILE, LOCAL_ZIP, RAW_DIR, PROCESSED_DIR
 from utils.kaggle.extract import download_kaggle
-from utils.transform import save_to_csv
+from utils.transform import split_and_save_per_table
 from utils.logger import get_logger, log_pipeline_start, log_pipeline_success, log_pipeline_failure
 import traceback
 
@@ -40,9 +40,48 @@ def run_pipeline():
         
         count = df_transformed.count()
         
-        logger.info("📦 Export to CSV...")
-        save_to_csv(df_transformed, str(PROCESSED_DIR / "user_metrics"))
-        log_pipeline_success(logger, "Gym Members", f"{count} users exported to CSV")
+        logger.info("📦 Splitting and saving per table...")
+        # Map flat DF columns → per-table schema columns.
+        # profile_updated_at and metrics_created_at are renamed to match the DB schema.
+        table_column_map = {
+            "user": {
+                "user_id":       "user_id",
+                "email":         "email",
+                "password_hash": "password_hash",
+                "first_name":    "first_name",
+                "last_name":     "last_name",
+                "birth_date":    "birth_date",
+                "gender_code":   "gender_code",
+                "created_at":    "created_at",
+                "is_active":     "is_active",
+                "role_code":     "role_code",
+            },
+            "user_profile": {
+                "profile_id":           "profile_id",
+                "user_id":              "user_id",
+                "height_cm":            "height_cm",
+                "current_weight_kg":    "current_weight_kg",
+                "activity_level_ref":   "activity_level_ref",
+                "allergies_json":       "allergies_json",
+                "preferences_json":     "preferences_json",
+                "profile_updated_at":   "updated_at",
+            },
+            "user_metrics": {
+                "metric_id":           "metric_id",
+                "user_id":             "user_id",
+                "recorded_date":       "recorded_date",
+                "weight_kg":           "weight_kg",
+                "body_fat_percentage": "body_fat_percentage",
+                "steps":               "steps",
+                "calories_burned":     "calories_burned",
+                "heart_rate_avg":      "heart_rate_avg",
+                "heart_rate_max":      "heart_rate_max",
+                "sleep_hours":         "sleep_hours",
+                "metrics_created_at":  "created_at",
+            },
+        }
+        split_and_save_per_table(df_transformed, PROCESSED_DIR, table_column_map)
+        log_pipeline_success(logger, "Gym Members", f"{count} users split into user / user_profile / user_metrics")
         return True
             
     except Exception as e:

@@ -1,31 +1,29 @@
 from pyspark.sql.functions import (
-    col, trim, upper, when, lit, udf, 
+    col, trim, upper, when, lit, udf,
     current_date, current_timestamp,
-    round as spark_round
+    round as spark_round, md5, concat_ws, concat
 )
 from pyspark.sql.types import StringType, DateType
 from datetime import datetime
 from utils.transform import load_raw_data
+from utils.uuid_utils import user_uuid_udf, profile_uuid_udf, metric_uuid_udf
 
-def generate_email(row_idx):
-    """Generate synthetic email"""
-    return f"user{row_idx}@healthai.com"
-
-def generate_first_name(gender, row_idx):
-    """Generate synthetic first name based on gender"""
+def generate_first_name(gender, key):
+    """Generate deterministic first name from gender and row-key hash."""
     male_names = ["John", "Michael", "David", "James", "Robert", "William", "Richard", "Thomas", "Charles", "Daniel"]
     female_names = ["Mary", "Jennifer", "Linda", "Patricia", "Elizabeth", "Susan", "Jessica", "Sarah", "Karen", "Nancy"]
-    
+    seed = int(key[:8], 16) if key else 0
     if gender and gender.upper() == 'MALE':
-        return male_names[hash(f"first{row_idx}") % len(male_names)]
+        return male_names[seed % len(male_names)]
     else:
-        return female_names[hash(f"first{row_idx}") % len(female_names)]
+        return female_names[seed % len(female_names)]
 
-def generate_last_name(row_idx):
-    """Generate synthetic last name"""
+def generate_last_name(key):
+    """Generate deterministic last name from row-key hash."""
     last_names = ["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis", "Rodriguez", "Martinez",
                   "Wilson", "Anderson", "Taylor", "Thomas", "Moore", "Jackson", "Martin", "Lee", "Thompson", "White"]
-    return last_names[hash(f"last{row_idx}") % len(last_names)]
+    seed = int(key[:8], 16) if key else 0
+    return last_names[seed % len(last_names)]
 
 def calculate_birth_date(age):
     """Calculate birth date from age"""
@@ -42,7 +40,6 @@ def calculate_birth_date(age):
         return None
 
 # Register UDFs
-email_udf = udf(generate_email, StringType())
 first_name_udf = udf(generate_first_name, StringType())
 last_name_udf = udf(generate_last_name, StringType())
 birth_date_udf = udf(calculate_birth_date, DateType())
@@ -56,20 +53,25 @@ def transform_gym_members(spark, csv_path: str):
 
     df_raw = load_raw_data(spark, csv_path)
 
-    # Add synthetic fields (email, names, birth_date, gender_code)
-    from pyspark.sql.window import Window
-    from pyspark.sql.functions import row_number, monotonically_increasing_id
-    window = Window.orderBy(monotonically_increasing_id())
-    df_with_rownum = df_raw.withColumn("row_num", row_number().over(window))
+    # Compute a stable row key from all source columns so that user_id (UUID v5
+    # of the email) is identical across re-runs for the same source row.
+    _key_cols = [
+        col("Age"), col("Gender"), col("Weight (kg)"), col("Height (m)"),
+        col("Max_BPM"), col("Avg_BPM"), col("Resting_BPM"),
+        col("Session_Duration (hours)"), col("Calories_Burned"), col("Workout_Type"),
+        col("Fat_Percentage"), col("Water_Intake (liters)"),
+        col("Workout_Frequency (days/week)"), col("Experience_Level"), col("BMI"),
+    ]
+    df_raw = df_raw.withColumn("row_key", md5(concat_ws("|", *_key_cols)))
 
-    df = df_with_rownum.withColumn(
-        "email", email_udf(col("row_num").cast("string"))
+    df = df_raw.withColumn(
+        "email", concat(lit("gm_"), col("row_key"), lit("@healthai.com"))
     ).withColumn(
         "password_hash", lit("hashed_password_placeholder")
     ).withColumn(
-        "first_name", first_name_udf(col("Gender"), col("row_num").cast("string"))
+        "first_name", first_name_udf(col("Gender"), col("row_key"))
     ).withColumn(
-        "last_name", last_name_udf(col("row_num").cast("string"))
+        "last_name", last_name_udf(col("row_key"))
     ).withColumn(
         "birth_date", birth_date_udf(col("Age"))
     ).withColumn(
@@ -120,14 +122,21 @@ def transform_gym_members(spark, csv_path: str):
         "metrics_created_at", current_timestamp()
     )
 
-    # Select and order columns for clarity (all relevant fields, no IDs)
+    # Generate deterministic UUID v5 PKs and FKs.
+    # user_id is derived from email so it is stable and matches what
+    # fitness_tracker reads when it loads the processed user CSV.
+    df = df.withColumn("user_id", user_uuid_udf(col("email"))) \
+           .withColumn("profile_id", profile_uuid_udf(col("user_id"))) \
+           .withColumn("metric_id", metric_uuid_udf(col("user_id"), col("recorded_date").cast("string")))
+
+    # Select and order columns for clarity (all relevant fields, with IDs)
     output_cols = [
         # User table fields
-        "email", "password_hash", "first_name", "last_name", "birth_date", "gender_code", "created_at", "is_active", "role_code",
+        "user_id", "email", "password_hash", "first_name", "last_name", "birth_date", "gender_code", "created_at", "is_active", "role_code",
         # User profile fields
-        "height_cm", "current_weight_kg", "activity_level_ref", "allergies_json", "preferences_json", "profile_updated_at",
+        "profile_id", "height_cm", "current_weight_kg", "activity_level_ref", "allergies_json", "preferences_json", "profile_updated_at",
         # User metrics fields
-        "recorded_date", "weight_kg", "body_fat_percentage", "steps", "calories_burned", "heart_rate_avg", "heart_rate_max", "sleep_hours", "metrics_created_at"
+        "metric_id", "recorded_date", "weight_kg", "body_fat_percentage", "steps", "calories_burned", "heart_rate_avg", "heart_rate_max", "sleep_hours", "metrics_created_at"
     ]
     df_final = df.select(*output_cols)
 

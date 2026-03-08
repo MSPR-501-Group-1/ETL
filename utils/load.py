@@ -100,11 +100,21 @@ def aggregate_to_csv(
             # Select only schema columns, in schema order
             result_df = combined_df.select(schema_cols)
 
+            # Count and cache before writing so we don't re-trigger the full
+            # Spark DAG a second time just for the log message.
+            result_df = result_df.cache()
+            row_count = result_df.count()
+
             # --- Write to a single CSV file ---
+            # quote/escape options ensure multiline or comma-containing fields
+            # (e.g. exercise descriptions) are properly quoted so psycopg2 COPY
+            # can parse the file without "extra data after last expected column".
             tmp_dir = output_dir / f"_{table_name}_tmp"
             result_df.coalesce(1).write.mode("overwrite") \
                 .option("header", "true") \
                 .option("nullValue", "") \
+                .option("quote", '"') \
+                .option("escape", '"') \
                 .csv(str(tmp_dir))
 
             # Spark writes part-*.csv inside a directory; move it to the final path
@@ -118,7 +128,6 @@ def aggregate_to_csv(
             shutil.move(part_files[0], str(csv_path))
             shutil.rmtree(str(tmp_dir), ignore_errors=True)
 
-            row_count = result_df.count()
             results[table_name] = csv_path
             logger.info(f"✅ {table_name}.csv written — {row_count:,} rows, {len(schema_cols)} columns")
 

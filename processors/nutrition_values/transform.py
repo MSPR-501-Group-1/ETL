@@ -8,7 +8,7 @@ from pyspark.sql.functions import (
 )
 from pyspark.sql.types import StringType
 import uuid
-from utils.transform import load_raw_data
+from utils.transform import load_raw_data, ensure_columns
 from utils.uuid_utils import food_uuid_udf
 
 def map_to_mcd_schema(df: DataFrame) -> DataFrame:
@@ -37,7 +37,22 @@ def map_to_mcd_schema(df: DataFrame) -> DataFrame:
         "brand",
         lit(None).cast(StringType())
     )
-    
+
+    # Ensure all fallback column names referenced in WHEN chains exist.
+    # PySpark 4.x validates every col() reference at plan-compilation time,
+    # even inside unreachable WHEN branches — missing columns cause AnalysisException.
+    df_with_name = ensure_columns(df_with_name, [
+        "calories", "energy_kcal", "energy", "calorie",
+        "protein_g", "protein", "proteins",
+        "carbohydrate_g", "carbs_g", "carbohydrates", "carbs", "total_carbohydrate",
+        "fat_g", "total_fat", "fat", "lipid",
+        "food_category", "food_group", "group",
+        "fiber_g", "dietary_fiber", "fiber", "fibre",
+        "sugar_g", "sugars", "sugar", "total_sugars",
+        "sodium_mg", "sodium", "salt",
+        "cholesterol_mg", "cholesterol",
+    ])
+
     df_mapped = df_with_name.select(
         food_uuid_udf(col("name"), col("brand")).alias("food_id"),
         col("name"),

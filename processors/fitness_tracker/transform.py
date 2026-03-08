@@ -4,12 +4,11 @@ Maps to: ACTIVITY_TYPE, WORKOUT_SESSION tables
 """
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import (
-    col, trim, lower, upper, when, lit, udf, 
-    current_date, current_timestamp, to_timestamp,
-    regexp_replace, round as spark_round, monotonically_increasing_id, row_number
+    col, trim, lower, upper, when, lit, udf,
+    current_date, current_timestamp,
+    round as spark_round
 )
 from pyspark.sql.types import StringType
-from pyspark.sql.window import Window
 import uuid
 from utils.uuid_utils import activity_uuid_udf, session_uuid_udf, user_uuid_udf, generate_user_uuid
 from utils.transform import load_raw_data
@@ -48,82 +47,83 @@ def create_activity_types(spark) -> DataFrame:
 
 def transform_to_workout_session(df: DataFrame, df_users: DataFrame, df_activities: DataFrame) -> DataFrame:
     """
-    Transform to WORKOUT_SESSION table schema
-    
+    Transform to WORKOUT_SESSION table schema.
+
     MCD Schema: session_id, user_id, activity_id, start_time, duration_minutes,
                 calories_burned, distance_km, notes
-    
-    Dataset columns: typically include User_ID, Date, Activity_Type, Duration,
-                     Calories_Burned, Distance, Steps, etc.
+
+    Source columns used:
+      Workout_Type            → activity_id  (mapped to activity reference table)
+      Session_Duration (hours)→ duration_minutes  (× 60, rounded to integer)
+      Calories_Burned         → calories_burned
     """
-    # Add row numbers for joining
-    window = Window.orderBy(monotonically_increasing_id())
-    df_with_row = df.withColumn("row_num", row_number().over(window))
-    
-    # Get random user_ids (cycling through existing users)
+    from pyspark.sql.functions import md5, concat_ws
+
+    # Stable row key from all source columns — makes session_id deterministic
+    # across re-runs so UPSERT / re-import never creates phantom duplicates.
+    _key_cols = [
+        col("Age"), col("Gender"), col("Weight (kg)"), col("Height (m)"),
+        col("Max_BPM"), col("Avg_BPM"), col("Resting_BPM"),
+        col("Session_Duration (hours)"), col("Calories_Burned"), col("Workout_Type"),
+        col("Fat_Percentage"), col("Water_Intake (liters)"),
+        col("Workout_Frequency (days/week)"), col("Experience_Level"), col("BMI"),
+    ]
+    df = df.withColumn("row_key", md5(concat_ws("|", *_key_cols)))
+
+    # Materialise user list (already loaded from gym_members processed CSV)
     df_users_list = df_users.select("user_id").collect()
     user_ids = [row.user_id for row in df_users_list]
-    
-    # Get activity mapping
+
+    # Activity lookup map  {lowercase name → activity_id}
     df_activities_map = df_activities.select("activity_id", "name").collect()
     activity_map = {row.name.lower(): row.activity_id for row in df_activities_map}
-    
-    # Select user_id based on row number - use deterministic UUID generation for users
-    def get_user_id(row_num):
-        if user_ids:
-            return user_ids[int(row_num) % len(user_ids)]
-        # Fallback: generate deterministic user ID from row number
-        return generate_user_uuid(f"user{row_num}@healthai.com")
-    
+
+    def get_user_id(row_key):
+        """Pick a gym_members user deterministically via row_key hash."""
+        if not user_ids:
+            return generate_user_uuid("user0@healthai.com")
+        seed = int(row_key[:8], 16) if row_key else 0
+        return user_ids[seed % len(user_ids)]
+
     def get_activity_id(activity_name):
-        """Map activity name to activity_id"""
+        """Map Workout_Type string to the activity reference UUID."""
         if not activity_name:
             return activity_map.get("gym workout")
-        activity_lower = activity_name.lower()
-        
-        # Try exact match first
+        activity_lower = activity_name.lower().strip()
         if activity_lower in activity_map:
             return activity_map[activity_lower]
-        
-        # Try partial matches
         for key in activity_map:
             if key in activity_lower or activity_lower in key:
                 return activity_map[key]
-        
-        # Default to Gym Workout
         return activity_map.get("gym workout")
-    
-    get_user_id_udf = udf(lambda x: get_user_id(x) if user_ids else None, StringType())
-    get_activity_id_udf = udf(get_activity_id, StringType())
-    
-    # Build workout sessions
-    # Note: Column names may vary based on actual dataset structure
-    # This is a generic transformation that will need adjustment based on actual columns
-    
-    # First create user_id, activity_id, and timestamp columns
-    df_with_ids = df_with_row.select(
-        col("row_num"),
-        get_user_id_udf(col("row_num")).alias("user_id"),
-        get_activity_id_udf(lit("Gym Workout")).alias("activity_id"),
-        current_timestamp().alias("start_time"),
-        lit(60).cast("integer").alias("duration_minutes"),
-        lit(300.0).cast("decimal(8,2)").alias("calories_burned"),
+
+    get_user_id_udf      = udf(get_user_id, StringType())
+    get_activity_id_udf  = udf(get_activity_id, StringType())
+
+    # Map real source columns to the workout_session schema
+    df_with_ids = df.select(
+        get_user_id_udf(col("row_key")).alias("user_id"),
+        get_activity_id_udf(col("Workout_Type")).alias("activity_id"),
+        col("row_key").alias("_session_key"),
+        spark_round(col("Session_Duration (hours)") * 60).cast("integer").alias("duration_minutes"),
+        spark_round(col("Calories_Burned"), 2).cast("decimal(8,2)").alias("calories_burned"),
         lit(None).cast("decimal(6,2)").alias("distance_km"),
-        lit("Fitness tracker activity").alias("notes")
+        lit("Fitness tracker activity").alias("notes"),
     )
-    
-    # Add deterministic session_id based on user_id, timestamp, activity_id, and source
+
+    # session_id is fully deterministic: derived from user_id + row_key + activity_id
+    # (not from start_time, which would shift every run)
     df_sessions = df_with_ids.withColumn(
         "session_id",
-        session_uuid_udf(col("user_id"), col("start_time").cast("string"), col("activity_id"), lit("fitness_tracker"))
+        session_uuid_udf(col("user_id"), col("_session_key"), col("activity_id"), lit("fitness_tracker"))
+    ).withColumn(
+        "start_time", current_timestamp()
     ).select(
         "session_id", "user_id", "activity_id", "start_time",
         "duration_minutes", "calories_burned", "distance_km", "notes"
     )
-    
-    # Filter out null user_ids
+
     df_sessions = df_sessions.filter(col("user_id").isNotNull())
-    
     return df_sessions
 
 def clean_and_validate(df_activities: DataFrame, df_sessions: DataFrame):
@@ -150,17 +150,30 @@ def transform_fitness_tracker(spark, csv_path: str):
         raise FileNotFoundError(f"Raw data file not found: {csv_path}")
     
     df_raw = load_raw_data(spark, csv_path)
-    
-    # Get existing users from database (orchestrator ensures gym_members runs first)
-    from utils.db_utils import read_table_with_retry
+
     from utils.logger import get_logger
-    
+    from utils.uuid_utils import user_uuid_udf as _user_uuid_udf
+
     logger = get_logger(__name__)
-    df_users = read_table_with_retry(spark, '"user"')
-    
-    if df_users is None:
-        logger.error("No users found in database. Run gym_members pipeline first!")
-        raise ValueError("Users table is empty or doesn't exist. Run gym_members pipeline first.")
+
+   
+    from processors.gym_members.config import PROCESSED_DIR as GM_PROCESSED_DIR
+    user_csv_path = GM_PROCESSED_DIR / "user"
+    if not user_csv_path.exists():
+        raise ValueError(
+            f"Gym members user CSV not found at {user_csv_path}. "
+            "Run gym_members pipeline first."
+        )
+    df_users_raw = spark.read.option("header", "true").csv(str(user_csv_path))
+    # Derive user_id deterministically from email (UUID v5, same namespace as gym_members)
+    df_users = df_users_raw.withColumn("user_id", _user_uuid_udf(col("email")))
+    user_count = df_users.count()
+    if user_count == 0:
+        raise ValueError(
+            f"Gym members user CSV at {user_csv_path} is empty. "
+            "Run gym_members pipeline first."
+        )
+    logger.info(f"✅ Loaded {user_count:,} users from gym_members processed CSV")
     
     # Create reference tables
     df_activities = create_activity_types(spark)

@@ -6,7 +6,7 @@ from spark.session import get_spark, stop_spark
 from processors.body_performance.transform import transform_body_performance
 from processors.body_performance.config import KAGGLE_DATASET, LOCAL_FILE, RAW_DIR, LOCAL_ZIP, PROCESSED_DIR
 from utils.kaggle.extract import download_kaggle
-from utils.transform import save_to_csv
+from utils.transform import split_and_save_per_table
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -48,10 +48,49 @@ def run_pipeline():
         count = df_transformed.count()
         logger.info(f"✅ Transformed {count} body performance records")
         
-        # Step 3: Export to CSV
-        logger.info("📦 Export to CSV...")
-        save_to_csv(df_transformed, str(PROCESSED_DIR / "body_performance"))
-        log_pipeline_success(logger, "Body Performance", f"{count} body performance records exported to CSV")
+        # Step 3: Split and save per table.
+        # Now that UUIDs are generated in the transform, we populate all three
+        # tables: user, user_profile, and user_metrics (with FK user_id linkage).
+        logger.info("📦 Splitting and saving per table...")
+        table_column_map = {
+            "user": {
+                "user_id":       "user_id",
+                "email":         "email",
+                "password_hash": "password_hash",
+                "first_name":    "first_name",
+                "last_name":     "last_name",
+                "birth_date":    "birth_date",
+                "gender_code":   "gender_code",
+                "created_at":    "created_at",
+                "is_active":     "is_active",
+                "role_code":     "role_code",
+            },
+            "user_profile": {
+                "profile_id":           "profile_id",
+                "user_id":              "user_id",
+                "height_cm":            "height_cm",
+                "current_weight_kg":    "current_weight_kg",
+                "activity_level_ref":   "activity_level_ref",
+                "allergies_json":       "allergies_json",
+                "preferences_json":     "preferences_json",
+                "profile_updated_at":   "updated_at",
+            },
+            "user_metrics": {
+                "metric_id":           "metric_id",
+                "user_id":             "user_id",
+                "recorded_date":       "recorded_date",
+                "weight_kg":           "weight_kg",
+                "body_fat_percentage": "body_fat_percentage",
+                "steps":               "steps",
+                "calories_burned":     "calories_burned",
+                "heart_rate_avg":      "heart_rate_avg",
+                "heart_rate_max":      "heart_rate_max",
+                "sleep_hours":         "sleep_hours",
+                "metrics_created_at":  "created_at",
+            },
+        }
+        split_and_save_per_table(df_transformed, PROCESSED_DIR, table_column_map)
+        log_pipeline_success(logger, "Body Performance", f"{count} body performance records split into user / user_profile / user_metrics")
         return True
             
     except Exception as e:
