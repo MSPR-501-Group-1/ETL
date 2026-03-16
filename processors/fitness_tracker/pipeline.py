@@ -1,18 +1,13 @@
-"""
-Complete ETL pipeline orchestrator for fitness tracker
-Loads ACTIVITY_TYPE and WORKOUT_SESSION tables
-"""
 from spark.session import get_spark, stop_spark
 from processors.fitness_tracker.transform import transform_fitness_tracker
-from processors.fitness_tracker.load import load_fitness_tracker
-from processors.fitness_tracker.config import KAGGLE_DATASET, LOCAL_FILE, LOCAL_ZIP, RAW_DIR
+from processors.fitness_tracker.config import KAGGLE_DATASET, LOCAL_FILE, LOCAL_ZIP, RAW_DIR, PROCESSED_DIR
 from utils.kaggle.extract import download_kaggle
+from utils.transform import save_to_csv
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 def run_pipeline():
-    """Execute complete ETL pipeline: Extract -> Transform -> Load"""
     
     from utils.logger import log_pipeline_start, log_pipeline_success, log_pipeline_failure
     import traceback
@@ -40,26 +35,20 @@ def run_pipeline():
         
         # Step 2: Transform
         logger.info("🔄 TRANSFORM: Processing data...")
-        df_activities, df_sessions = transform_fitness_tracker(spark, str(LOCAL_FILE))
-        
-        if df_activities is None or df_activities.count() == 0:
+        df_sessions = transform_fitness_tracker(spark, str(LOCAL_FILE))
+
+        if df_sessions is None or df_sessions.count() == 0:
             log_pipeline_failure(logger, "Fitness Tracker", "Transformation produced no data")
             return False
-        
-        activity_count = df_activities.count()
+
         session_count = df_sessions.count()
-        logger.info(f"✅ Transformed {activity_count} activity types and {session_count} sessions")
-        
-        # Step 3: Load
-        logger.info("📦 LOAD: Writing to database...")
-        success = load_fitness_tracker(spark, df_activities, df_sessions)
-        
-        if success:
-            log_pipeline_success(logger, "Fitness Tracker", f"{activity_count} activities, {session_count} sessions loaded")
-            return True
-        else:
-            log_pipeline_failure(logger, "Fitness Tracker", "Load operation failed")
-            return False
+        logger.info(f"✅ Transformed {session_count} workout sessions")
+
+        # Step 3: Export to CSV
+        logger.info("📦 Export to CSV...")
+        save_to_csv(df_sessions, str(PROCESSED_DIR / "workout_session"))
+        log_pipeline_success(logger, "Fitness Tracker", f"{session_count} sessions exported to CSV")
+        return True
             
     except Exception as e:
         error_msg = f"{type(e).__name__}: {str(e)}"

@@ -1,19 +1,14 @@
-"""
-Complete ETL pipeline orchestrator for gym members
-Loads USER, USER_PROFILE, and USER_METRICS tables
-"""
 from spark.session import get_spark, stop_spark
 from processors.gym_members.transform import transform_gym_members
-from processors.gym_members.load import load_gym_members
-from processors.gym_members.config import KAGGLE_DATASET, LOCAL_FILE, LOCAL_ZIP, RAW_DIR
+from processors.gym_members.config import KAGGLE_DATASET, LOCAL_FILE, LOCAL_ZIP, RAW_DIR, PROCESSED_DIR
 from utils.kaggle.extract import download_kaggle
+from utils.transform import split_and_save_per_table
 from utils.logger import get_logger, log_pipeline_start, log_pipeline_success, log_pipeline_failure
 import traceback
 
 logger = get_logger(__name__)
 
 def run_pipeline():
-    """Execute complete ETL pipeline: Extract -> Transform -> Load"""
     
     log_pipeline_start(logger, "👥 Gym Members Pipeline")
     
@@ -37,25 +32,57 @@ def run_pipeline():
         
         # Step 2: Transform
         logger.info("🔄 TRANSFORM: Processing data...")
-        df_user, df_profile, df_metrics = transform_gym_members(spark, str(LOCAL_FILE))
+        df_transformed = transform_gym_members(spark, str(LOCAL_FILE))
         
-        if df_user is None or df_user.count() == 0:
+        if df_transformed is None or df_transformed.count() == 0:
             log_pipeline_failure(logger, "Gym Members", "Transformation produced no data")
             return False
         
-        user_count = df_user.count()
-        logger.info(f"✅ Transformed {user_count} users into 3 tables")
+        count = df_transformed.count()
         
-        # Step 3: Load
-        logger.info("📦 LOAD: Writing to database...")
-        success = load_gym_members(spark, df_user, df_profile, df_metrics)
-        
-        if success:
-            log_pipeline_success(logger, "Gym Members", f"{user_count} users loaded")
-            return True
-        else:
-            log_pipeline_failure(logger, "Gym Members", "Load operation failed")
-            return False
+        logger.info("📦 Splitting and saving per table...")
+        # Map flat DF columns → per-table schema columns.
+        # profile_updated_at and metrics_created_at are renamed to match the DB schema.
+        table_column_map = {
+            "user_": {
+                "user_id":       "user_id",
+                "email":         "email",
+                "password_hash": "password_hash",
+                "first_name":    "first_name",
+                "last_name":     "last_name",
+                "birth_date":    "birth_date",
+                "gender_code":   "gender_code",
+                "created_at":    "created_at",
+                "is_active":     "is_active",
+                "role_code":     "role_code",
+                "role_id":       "role_id",
+                "user_id_1":     "user_id_1",
+            },
+            "user_profile": {
+                "user_id":              "user_id",
+                "height_cm":            "height_cm",
+                "current_weight_kg":    "current_weight_kg",
+                "activity_level_ref":   "activity_level_ref",
+                "allergies":            "allergies",
+                "diet_type":            "diet_type",
+                "updated_at":           "updated_at",
+                "goal_id":              "goal_id",
+            },
+            "user_metrics": {
+                "metric_id":            "metric_id",
+                "recorded_date":        "recorded_date",
+                "weight_kg":            "weight_kg",
+                "body_fat_pourcentage": "body_fat_pourcentage",
+                "steps":                "steps",
+                "calories_burned":      "calories_burned",
+                "heart_rate_avg":       "heart_rate_avg",
+                "heart_rate_max":       "heart_rate_max",
+                "sleep_hours":          "sleep_hours",
+            },
+        }
+        split_and_save_per_table(df_transformed, PROCESSED_DIR, table_column_map)
+        log_pipeline_success(logger, "Gym Members", f"{count} users split into user_ / user_profile / user_metrics")
+        return True
             
     except Exception as e:
         error_msg = f"{type(e).__name__}: {str(e)}"

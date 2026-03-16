@@ -1,6 +1,3 @@
-"""
-Nutrition pipeline configuration
-"""
 from pathlib import Path
 
 # Project root

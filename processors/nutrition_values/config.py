@@ -1,7 +1,3 @@
-"""
-Configuration for nutritional-values processor
-Kaggle dataset: trolukovich/nutritional-values-for-common-foods-and-products
-"""
 from pathlib import Path
 
 # Project root

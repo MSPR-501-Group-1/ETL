@@ -8,18 +8,39 @@ from pyspark.sql.functions import (
 )
 from pyspark.sql.types import StringType
 import uuid
-from utils.transform import load_raw_data
+from utils.transform import load_raw_data, ensure_columns
 from utils.uuid_utils import food_uuid_udf
 
-def map_to_mcd_schema(df: DataFrame) -> DataFrame:
+# Maps raw category strings to category_enum values
+def _map_category(raw_cat):
+    if not raw_cat:
+        return "OTHER"
+    c = raw_cat.lower().strip()
+    if any(k in c for k in ("vegetable", "veggie", "veg")):
+        return "VEGETABLE"
+    if any(k in c for k in ("fruit",)):
+        return "FRUIT"
+    if any(k in c for k in ("meat", "beef", "pork", "chicken", "poultry", "lamb", "fish", "seafood")):
+        return "MEAT"
+    if any(k in c for k in ("dairy", "milk", "cheese", "yogurt", "cream")):
+        return "DAIRY"
+    if any(k in c for k in ("grain", "bread", "pasta", "rice", "cereal", "flour")):
+        return "GRAIN"
+    if any(k in c for k in ("beverage", "drink", "juice", "water", "alcohol", "soda")):
+        return "BEVERAGE"
+    if any(k in c for k in ("snack", "candy", "chocolate", "chip", "dessert", "sweet", "biscuit")):
+        return "SNACK"
+    return "OTHER"
+
+from pyspark.sql.types import StringType as _ST
+from pyspark.sql.functions import udf as _udf
+_map_category_udf = _udf(_map_category, _ST())(df: DataFrame) -> DataFrame:
     """
-    Map source columns to MCD FOOD schema
-    
-    MCD Schema: food_id, name, brand, calories_100g, protein_100g, carbs_100g,
-                fat_100g, nutriscore, category_ref, fiber_g, sugar_g, 
-                sodium_mg, cholesterol_mg
-    
-    Expected columns in nutritional-values dataset may vary, handling common variations
+    Map source columns to MCD INGREDIENTS schema
+
+    Schema: ingredients_id, name, calories_g, protein_g, carbs_g,
+            fat_g, nutriscore, category, fiber_g, sugar_g,
+            sodium_mg, cholesterol_mg
     """
     # Normalize column names (lowercase, remove spaces/parentheses)
     for old_col in df.columns:
@@ -31,110 +52,115 @@ def map_to_mcd_schema(df: DataFrame) -> DataFrame:
     df_with_name = df.withColumn(
         "name",
         when(col("name").isNotNull(), trim(col("name")))
-        # .when(col("description").isNotNull(), trim(col("description")))
         .otherwise(lit("Unknown"))
-    ).withColumn(
-        "brand",
-        lit(None).cast(StringType())
     )
-    
+
+    # Ensure all fallback column names referenced in WHEN chains exist.
+    # PySpark 4.x validates every col() reference at plan-compilation time,
+    # even inside unreachable WHEN branches — missing columns cause AnalysisException.
+    df_with_name = ensure_columns(df_with_name, [
+        "calories", "energy_kcal", "energy", "calorie",
+        "protein_g", "protein", "proteins",
+        "carbohydrate_g", "carbs_g", "carbohydrates", "carbs", "total_carbohydrate",
+        "fat_g", "total_fat", "fat", "lipid",
+        "food_category", "food_group", "group",
+        "fiber_g", "dietary_fiber", "fiber", "fibre",
+        "sugar_g", "sugars", "sugar", "total_sugars",
+        "sodium_mg", "sodium", "salt",
+        "cholesterol_mg", "cholesterol",
+    ])
+
     df_mapped = df_with_name.select(
-        food_uuid_udf(col("name"), col("brand")).alias("food_id"),
+        food_uuid_udf(col("name"), lit(None)).alias("ingredients_id"),
         col("name"),
-        col("brand"),
-        
-        # Calories per 100g - try variations
+
+        # Calories
         when(col("calories").isNotNull(), spark_round(col("calories"), 2))
         .when(col("energy_kcal").isNotNull(), spark_round(col("energy_kcal"), 2))
         .when(col("energy").isNotNull(), spark_round(col("energy"), 2))
         .when(col("calorie").isNotNull(), spark_round(col("calorie"), 2))
         .otherwise(lit(0.0))
-        .alias("calories_100g"),
-        
-        # Protein per 100g - try variations
+        .alias("calories_g"),
+
+        # Protein
         when(col("protein_g").isNotNull(), spark_round(col("protein_g"), 2))
         .when(col("protein").isNotNull(), spark_round(col("protein"), 2))
         .when(col("proteins").isNotNull(), spark_round(col("proteins"), 2))
         .otherwise(lit(0.0))
-        .alias("protein_100g"),
-        
-        # Carbohydrates per 100g - try variations
+        .alias("protein_g"),
+
+        # Carbohydrates
         when(col("carbohydrate_g").isNotNull(), spark_round(col("carbohydrate_g"), 2))
         .when(col("carbs_g").isNotNull(), spark_round(col("carbs_g"), 2))
         .when(col("carbohydrates").isNotNull(), spark_round(col("carbohydrates"), 2))
         .when(col("carbs").isNotNull(), spark_round(col("carbs"), 2))
         .when(col("total_carbohydrate").isNotNull(), spark_round(col("total_carbohydrate"), 2))
         .otherwise(lit(0.0))
-        .alias("carbs_100g"),
-        
-        # Fat per 100g - try variations
+        .alias("carbs_g"),
+
+        # Fat
         when(col("fat_g").isNotNull(), spark_round(col("fat_g"), 2))
         .when(col("total_fat").isNotNull(), spark_round(col("total_fat"), 2))
         .when(col("fat").isNotNull(), spark_round(col("fat"), 2))
         .when(col("lipid").isNotNull(), spark_round(col("lipid"), 2))
         .otherwise(lit(0.0))
-        .alias("fat_100g"),
-        
-        # Nutriscore (rarely available)
+        .alias("fat_g"),
+
+        # nutriscore: NULL (nutriscore_enum: A-E)
         lit(None).cast(StringType()).alias("nutriscore"),
-        
-        # Category - try variations
-        when(col("category").isNotNull(), lower(trim(col("category"))))
-        .when(col("food_category").isNotNull(), lower(trim(col("food_category"))))
-        .when(col("food_group").isNotNull(), lower(trim(col("food_group"))))
-        .when(col("group").isNotNull(), lower(trim(col("group"))))
-        .otherwise(lit("general"))
-        .alias("category_ref"),
-        
-        # Fiber - try variations
+
+        # category mapped to category_enum
+        _map_category_udf(
+            when(col("category").isNotNull(), col("category"))
+            .when(col("food_category").isNotNull(), col("food_category"))
+            .when(col("food_group").isNotNull(), col("food_group"))
+            .when(col("group").isNotNull(), col("group"))
+            .otherwise(lit(None))
+        ).alias("category"),
+
+        # Fiber
         when(col("fiber_g").isNotNull(), spark_round(col("fiber_g"), 2))
         .when(col("dietary_fiber").isNotNull(), spark_round(col("dietary_fiber"), 2))
         .when(col("fiber").isNotNull(), spark_round(col("fiber"), 2))
         .when(col("fibre").isNotNull(), spark_round(col("fibre"), 2))
         .otherwise(lit(0.0))
         .alias("fiber_g"),
-        
-        # Sugar - try variations
+
+        # Sugar
         when(col("sugar_g").isNotNull(), spark_round(col("sugar_g"), 2))
         .when(col("sugars").isNotNull(), spark_round(col("sugars"), 2))
         .when(col("sugar").isNotNull(), spark_round(col("sugar"), 2))
         .when(col("total_sugars").isNotNull(), spark_round(col("total_sugars"), 2))
         .otherwise(lit(0.0))
         .alias("sugar_g"),
-        
-        # Sodium - try variations
+
+        # Sodium
         when(col("sodium_mg").isNotNull(), spark_round(col("sodium_mg"), 2))
         .when(col("sodium").isNotNull(), spark_round(col("sodium"), 2))
-        .when(col("salt").isNotNull(), spark_round(col("salt") * 400, 2))  # Salt to sodium conversion
+        .when(col("salt").isNotNull(), spark_round(col("salt") * 400, 2))
         .otherwise(lit(0.0))
         .alias("sodium_mg"),
-        
-        # Cholesterol - try variations
+
+        # Cholesterol
         when(col("cholesterol_mg").isNotNull(), spark_round(col("cholesterol_mg"), 2))
         .when(col("cholesterol").isNotNull(), spark_round(col("cholesterol"), 2))
         .otherwise(lit(0.0))
         .alias("cholesterol_mg")
     )
-    
+
     return df_mapped
 
 def clean_data(df: DataFrame) -> DataFrame:
     """Clean and validate transformed data"""
-    # Remove rows with null/empty names
     df = df.filter(
-        (col("name").isNotNull()) & 
+        (col("name").isNotNull()) &
         (trim(col("name")) != "") &
         (col("name") != "Unknown")
     )
-    
-    # Remove duplicates based on name
     df = df.dropDuplicates(["name"])
-    
-    # Validate numeric ranges (calories should be reasonable)
     df = df.filter(
-        (col("calories_100g") >= 0) & (col("calories_100g") <= 900)
+        (col("calories_g") >= 0) & (col("calories_g") <= 900)
     )
-    
     return df
 
 def transform_nutrition_values(spark, csv_path: str) -> DataFrame:

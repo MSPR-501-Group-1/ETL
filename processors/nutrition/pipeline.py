@@ -1,18 +1,14 @@
-"""
-Complete ETL pipeline orchestrator for nutrition
-"""
 from spark.session import get_spark, stop_spark
 from processors.nutrition.transform import transform_nutrition
-from processors.nutrition.load import load_nutrition
-from processors.nutrition.config import LOCAL_FILE, LOCAL_ZIP, RAW_DIR, KAGGLE_DATASET
+from processors.nutrition.config import LOCAL_FILE, LOCAL_ZIP, RAW_DIR, KAGGLE_DATASET, PROCESSED_DIR
 from utils.kaggle.extract import download_kaggle
+from utils.transform import save_to_csv
 from utils.logger import get_logger, log_pipeline_start, log_pipeline_success, log_pipeline_failure
 import traceback
 
 logger = get_logger(__name__)
 
 def run_pipeline():
-    """Execute complete ETL pipeline: Extract -> Transform -> Load"""
     
     log_pipeline_start(logger, "🍎 Nutrition Pipeline")
     
@@ -46,16 +42,11 @@ def run_pipeline():
         count = df_transformed.count()
         logger.info(f"✅ Transformed {count} foods")
         
-        # Step 3: Load
-        logger.info("📦 LOAD: Writing to database...")
-        success = load_nutrition(spark, df_transformed)
-        
-        if success:
-            log_pipeline_success(logger, "Nutrition", f"{count} foods loaded")
-            return True
-        else:
-            log_pipeline_failure(logger, "Nutrition", "Load operation failed")
-            return False
+        # Step 3: Export to CSV
+        logger.info("📦 Export to CSV...")
+        save_to_csv(df_transformed, str(PROCESSED_DIR / "ingredients"))
+        log_pipeline_success(logger, "Nutrition", f"{count} ingredients exported to CSV")
+        return True
             
     except Exception as e:
         error_msg = f"{type(e).__name__}: {str(e)}"

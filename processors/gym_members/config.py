@@ -1,6 +1,3 @@
-"""
-Gym Members pipeline configuration
-"""
 from pathlib import Path
 
 # Paths

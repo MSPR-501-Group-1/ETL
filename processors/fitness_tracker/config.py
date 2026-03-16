@@ -1,6 +1,3 @@
-"""
-Fitness Tracker pipeline configuration
-"""
 from pathlib import Path
 
 # Paths

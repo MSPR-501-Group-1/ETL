@@ -1,290 +1,163 @@
-"""
-Transform body performance data with PySpark to match MCD schema
-Maps to: WORKOUT_SESSION, SESSION_DETAIL tables
-"""
-from pyspark.sql import DataFrame
 from pyspark.sql.functions import (
-    col, trim, lower, upper, when, lit, udf, concat,
-    current_date, current_timestamp,
-    regexp_replace, round as spark_round, monotonically_increasing_id, row_number
+    col, trim, upper, when, lit, udf, current_date, current_timestamp,
+    round as spark_round, concat, md5, concat_ws
 )
-from pyspark.sql.types import StringType
-from pyspark.sql.window import Window
-import uuid
-from utils.uuid_utils import session_uuid_udf, detail_uuid_udf, activity_uuid_udf, generate_user_uuid, exercise_uuid_udf
+from pyspark.sql.types import StringType, DateType
+from datetime import datetime
 from utils.transform import load_raw_data
+from utils.uuid_utils import user_uuid_udf, metric_uuid_udf, DEFAULT_FREEMIUM_ROLE_ID
 
-def transform_to_workout_session_performance(df: DataFrame, df_users: DataFrame, df_activities: DataFrame) -> DataFrame:
-    """
-    Transform to WORKOUT_SESSION table schema with performance metrics
-    
-    MCD Schema: session_id, user_id, activity_id, start_time, duration_minutes,
-                calories_burned, distance_km, notes
-    
-    Body Performance columns: age, gender, height_cm, weight_kg, body fat_%,
-                             diastolic, systolic, gripForce, sit and bend forward_cm,
-                             sit-ups counts, broad jump_cm, class (performance level A-D)
-    """
-    # Add row numbers for joining
-    window = Window.orderBy(monotonically_increasing_id())
-    df_with_row = df.withColumn("row_num", row_number().over(window))
-    
-    # Get random user_ids (cycling through existing users)
-    df_users_list = df_users.select("user_id").collect()
-    user_ids = [row.user_id for row in df_users_list]
-    
-    # Get Gym Workout activity_id using deterministic UUID
-    from utils.uuid_utils import generate_activity_uuid
-    
-    gym_activity_row = df_activities.filter(col("name") == "Gym Workout") \
-        .select("activity_id").first()
-    
-    if gym_activity_row:
-        gym_activity_id = gym_activity_row.activity_id
+def generate_first_name(gender, key):
+    """Generate deterministic first name from gender and row-key hash."""
+    male_names = ["John", "Michael", "David", "James", "Robert", "William", "Richard", "Thomas", "Charles", "Daniel"]
+    female_names = ["Mary", "Jennifer", "Linda", "Patricia", "Elizabeth", "Susan", "Jessica", "Sarah", "Karen", "Nancy"]
+    seed = int(key[:8], 16) if key else 0
+    if gender and gender.upper() == 'M':
+        return male_names[seed % len(male_names)]
     else:
-        # Fallback: generate deterministic UUID for "Gym Workout"
-        gym_activity_id = generate_activity_uuid("Gym Workout")
-    
-    # Function to get user_id based on row number
-    def get_user_id(row_num):
-        if user_ids:
-            return user_ids[int(row_num) % len(user_ids)]
-        # Fallback: generate deterministic user ID from row number
-        return generate_user_uuid(f"user{row_num}@healthai.com")
-    
-    get_user_id_udf = udf(lambda x: get_user_id(x), StringType())
-    
-    # Calculate estimated calories burned from performance metrics
-    # Formula approximation based on body composition and activity
-    df_sessions_prep = df_with_row.select(
-        col("row_num"),
-        get_user_id_udf(col("row_num")).alias("user_id"),
-        lit(gym_activity_id).alias("activity_id"),
-        current_timestamp().alias("start_time"),
-        lit(45).cast("integer").alias("duration_minutes"),
-        
-        # Estimate calories from body metrics and performance class
-        when(col("class") == "A", lit(450.0))
-        .when(col("class") == "B", lit(400.0))
-        .when(col("class") == "C", lit(350.0))
-        .otherwise(lit(300.0))
-        .cast("decimal(8,2)")
-        .alias("calories_burned"),
-        
-        lit(None).cast("decimal(6,2)").alias("distance_km"),
-        
-        # Create notes with performance class
-        when(col("class").isNotNull(), 
-             concat(lit("Performance level: "), col("class")))
-        .otherwise(lit("Gym workout session"))
-        .alias("notes")
-    )
-    
-    # Add deterministic session_id based on user_id, timestamp, activity_id, and source
-    df_sessions = df_sessions_prep.withColumn(
-        "session_id",
-        session_uuid_udf(col("user_id"), col("start_time").cast("string"), col("activity_id"), lit("body_performance"))
-    ).withColumn(
-        "source_row", col("row_num")
-    ).select(
-        "session_id", "user_id", "activity_id", "start_time",
-        "duration_minutes", "calories_burned", "distance_km", "notes", "source_row"
-    )
-    
-    # Filter out null user_ids
-    df_sessions = df_sessions.filter(col("user_id").isNotNull())
-    
-    return df_sessions
+        return female_names[seed % len(female_names)]
 
-def transform_to_session_detail(df: DataFrame, df_sessions: DataFrame, df_exercises: DataFrame) -> DataFrame:
-    """
-    Transform to SESSION_DETAIL table schema
-    
-    MCD Schema: detail_id, session_id, exercise_id, sets, reps, weight_kg
-    
-    Maps performance metrics to exercise details
-    """
-    # Get sample exercises for different body parts
-    exercises_list = df_exercises.select("exercise_id", "name", "body_part_target").collect()
-    
-    if not exercises_list:
-        return None
-    
-    # Create exercise mapping
-    core_exercises = [ex for ex in exercises_list if ex.body_part_target and "core" in ex.body_part_target.lower()]
-    leg_exercises = [ex for ex in exercises_list if ex.body_part_target and "leg" in ex.body_part_target.lower()]
-    upper_exercises = [ex for ex in exercises_list if ex.body_part_target and any(x in ex.body_part_target.lower() for x in ["chest", "back", "shoulder"])]
-    
-    # Use first available exercise from each category, or fallback to any
-    core_ex = core_exercises[0].exercise_id if core_exercises else exercises_list[0].exercise_id
-    leg_ex = leg_exercises[0].exercise_id if leg_exercises else exercises_list[1 % len(exercises_list)].exercise_id
-    upper_ex = upper_exercises[0].exercise_id if upper_exercises else exercises_list[2 % len(exercises_list)].exercise_id
-    
-    # Add row number to original data
-    window = Window.orderBy(monotonically_increasing_id())
-    df_with_row = df.withColumn("row_num", row_number().over(window))
-    
-    # Join with sessions to get session_id
-    df_joined = df_with_row.join(
-        df_sessions.select("session_id", "source_row"),
-        df_with_row.row_num == df_sessions.source_row,
-        "inner"
-    )
-    
-    # Create details for each session (3 exercises per session based on performance metrics)
-    details = []
-    
-    # Sit-ups -> Core exercise
-    detail1 = df_joined.select(
-        col("session_id"),
-        lit(core_ex).alias("exercise_id"),
-        lit(1).cast("integer").alias("sequence"),
-        lit(3).cast("integer").alias("sets"),
-        when(col("sit-ups counts").isNotNull(), col("sit-ups counts").cast("integer"))
-        .otherwise(lit(15))
-        .alias("reps"),
-        lit(None).cast("decimal(6,2)").alias("weight_kg")
-    ).withColumn(
-        "detail_id",
-        detail_uuid_udf(col("session_id"), col("exercise_id"), col("sequence"))
-    ).select("detail_id", "session_id", "exercise_id", "sets", "reps", "weight_kg")
-    details.append(detail1)
-    
-    # Broad jump -> Leg exercise
-    detail2 = df_joined.select(
-        col("session_id"),
-        lit(leg_ex).alias("exercise_id"),
-        lit(2).cast("integer").alias("sequence"),
-        lit(3).cast("integer").alias("sets"),
-        lit(10).cast("integer").alias("reps"),
-        lit(None).cast("decimal(6,2)").alias("weight_kg")
-    ).withColumn(
-        "detail_id",
-        detail_uuid_udf(col("session_id"), col("exercise_id"), col("sequence"))
-    ).select("detail_id", "session_id", "exercise_id", "sets", "reps", "weight_kg")
-    details.append(detail2)
-    
-    # Grip force -> Upper body exercise
-    detail3 = df_joined.select(
-        col("session_id"),
-        lit(upper_ex).alias("exercise_id"),
-        lit(3).cast("integer").alias("sequence"),
-        lit(3).cast("integer").alias("sets"),
-        lit(12).cast("integer").alias("reps"),
-        when(col("gripForce").isNotNull(), spark_round(col("gripForce") / 5, 2))
-        .otherwise(lit(None))
-        .cast("decimal(6,2)")
-        .alias("weight_kg")
-    ).withColumn(
-        "detail_id",
-        detail_uuid_udf(col("session_id"), col("exercise_id"), col("sequence"))
-    ).select("detail_id", "session_id", "exercise_id", "sets", "reps", "weight_kg")
-    details.append(detail3)
-    
-    # Union all details
-    df_details = details[0]
-    for detail in details[1:]:
-        df_details = df_details.union(detail)
-    
-    return df_details
+def generate_last_name(key):
+    """Generate deterministic last name from row-key hash."""
+    last_names = ["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis", "Rodriguez", "Martinez",
+                  "Wilson", "Anderson", "Taylor", "Thomas", "Moore", "Jackson", "Martin", "Lee", "Thompson", "White"]
+    seed = int(key[:8], 16) if key else 0
+    return last_names[seed % len(last_names)]
 
-def clean_and_validate(df_sessions: DataFrame, df_details: DataFrame = None):
-    """Clean and validate all dataframes"""
-    # Remove nulls in critical fields
-    df_sessions_clean = df_sessions.filter(
-        col("user_id").isNotNull() & 
-        col("activity_id").isNotNull() &
-        col("calories_burned").isNotNull()
-    ).drop("source_row")
-    
-    if df_details is not None:
-        df_details_clean = df_details.filter(
-            col("session_id").isNotNull() &
-            col("exercise_id").isNotNull()
-        )
-        return df_sessions_clean, df_details_clean
-    
-    return df_sessions_clean, None
+first_name_udf = udf(generate_first_name, StringType())
+last_name_udf = udf(generate_last_name, StringType())
 
 def transform_body_performance(spark, csv_path: str):
-    """Complete transformation pipeline to MCD schema"""
-    print("⏳ Transforming data...")
-    
-    # Check if file exists
+    """Transform body performance raw data to a single DataFrame matching DB columns (no IDs)."""
     from pathlib import Path
     if not Path(csv_path).exists():
-        print(f"❌ FAILED: File not found: {csv_path}")
+        print(f"❌ FAILED: File not found - {csv_path}")
         raise FileNotFoundError(f"Raw data file not found: {csv_path}")
-    
+
     df_raw = load_raw_data(spark, csv_path)
-    
-    # Get existing users from database (orchestrator ensures gym_members runs first)
-    from utils.db_utils import read_table_with_retry
-    from utils.logger import get_logger
-    
-    logger = get_logger(__name__)
-    df_users = read_table_with_retry(spark, '"user"')
-    
-    if df_users is None:
-        logger.error("No users found in database. Run gym_members pipeline first!")
-        raise ValueError("Users table is empty or doesn't exist. Run gym_members pipeline first.")
-    
-    # Get activity types from database (orchestrator ensures fitness_tracker runs first)
-    df_activities = read_table_with_retry(spark, "activity_type")
-    
-    if df_activities is None:
-        logger.error("No activity types found in database. Run fitness_tracker pipeline first!")
-        raise ValueError("Activity types table is empty or doesn't exist. Run fitness_tracker pipeline first.")
-    
-    # Get exercises (need for session_detail)
-    from processors.exercises.config import LOCAL_FILE as EXERCISE_FILE
-    if Path(EXERCISE_FILE).exists():
-        from processors.exercises.transform import transform_exercises
-        df_exercises = transform_exercises(spark, str(EXERCISE_FILE))
-    else:
-        df_exercises = None
-    
-    # Transform to workout sessions
-    df_sessions = transform_to_workout_session_performance(df_raw, df_users, df_activities)
-    # Cache and materialize to ensure consistent session_ids for session_detail foreign key
-    df_sessions = df_sessions.cache()
-    df_sessions.count()  # Force materialization
-    
-    # Transform to session details if exercises available
-    df_details = None
-    if df_exercises is not None and df_exercises.count() > 0:
-        df_details = transform_to_session_detail(df_raw, df_sessions, df_exercises)
-    
-    # Clean and validate
-    df_sessions, df_details = clean_and_validate(df_sessions, df_details)
-    
-    logger.info("✅ Transform completed")
-    return df_sessions, df_details
+
+    # Compute a stable row key from all source columns so that user_id (UUID v5
+    # of the email) is identical across re-runs for the same source row.
+    _key_cols = [
+        col("age"), col("gender"), col("height_cm"), col("weight_kg"),
+        col("body fat_%"), col("diastolic"), col("systolic"), col("gripForce"),
+        col("sit and bend forward_cm"), col("sit-ups counts"),
+        col("broad jump_cm"), col("class"),
+    ]
+    df_raw = df_raw.withColumn("row_key", md5(concat_ws("|", *_key_cols)))
+
+    df = df_raw.withColumn(
+        "first_name", first_name_udf(col("gender"), col("row_key"))
+    ).withColumn(
+        "last_name", last_name_udf(col("row_key"))
+    ).withColumn(
+        "birth_date", lit(None).cast(DateType())
+    ).withColumn(
+        # gender_code is INT in the new schema: 1=M, 2=F, 0=other
+        "gender_code",
+        when(upper(trim(col("gender"))) == "M", lit(1))
+        .when(upper(trim(col("gender"))) == "F", lit(2))
+        .otherwise(lit(0))
+    ).withColumn(
+        "created_at", current_timestamp()
+    ).withColumn(
+        "is_active", lit(True)
+    ).withColumn(
+        "role_code", lit("FREEMIUM")
+    ).withColumn(
+        "role_id", lit(DEFAULT_FREEMIUM_ROLE_ID)
+    ).withColumn(
+        "height_cm", spark_round(col("height_cm")).cast("integer")
+    ).withColumn(
+        "current_weight_kg", spark_round(col("weight_kg"), 2)
+    ).withColumn(
+        "activity_level_ref", lit(None).cast("string")
+    ).withColumn(
+        "allergies", lit("NONE")
+    ).withColumn(
+        "diet_type", lit("NONE")
+    ).withColumn(
+        "goal_id", lit(None).cast("string")
+    ).withColumn(
+        "updated_at", current_timestamp()
+    ).withColumn(
+        "recorded_date", current_date()
+    ).withColumn(
+        "weight_kg", spark_round(col("weight_kg"), 2)
+    ).withColumn(
+        "body_fat_pourcentage", spark_round(col("body fat_%"), 2)
+    ).withColumn(
+        "steps", lit(None).cast("integer")
+    ).withColumn(
+        "calories_burned", lit(None).cast("double")
+    ).withColumn(
+        "heart_rate_avg", lit(None).cast("integer")
+    ).withColumn(
+        "heart_rate_max", lit(None).cast("integer")
+    ).withColumn(
+        "sleep_hours", lit(None).cast("integer")
+    )
+
+    # Synthetic email — body performance has no real identity data, so we
+    # generate a deterministic address that will never collide with gym_members
+    # (different prefix). This lets us derive stable UUID v5 PKs/FKs.
+    df = df.withColumn(
+        "email", concat(lit("bp_"), col("row_key"), lit("@healthai.com"))
+    ).withColumn(
+        "password_hash", lit("hashed_password_placeholder")
+    ).withColumn(
+        "user_id", user_uuid_udf(col("email"))
+    ).withColumn(
+        # user_id_1: FK user_.user_id_1 → user_profile.user_id (same value)
+        "user_id_1", col("user_id")
+    ).withColumn(
+        "metric_id", metric_uuid_udf(col("user_id"), col("recorded_date").cast("string"))
+    )
+
+    output_cols = [
+        # user_ table
+        "user_id", "email", "password_hash", "first_name", "last_name", "birth_date",
+        "gender_code", "created_at", "is_active", "role_code", "role_id", "user_id_1",
+        # user_profile table (user_id is PK — no separate profile_id)
+        "height_cm", "current_weight_kg", "activity_level_ref",
+        "allergies", "diet_type", "updated_at", "goal_id",
+        # user_metrics table (no user_id — linked via gets junction)
+        "metric_id", "recorded_date", "weight_kg", "body_fat_pourcentage",
+        "steps", "calories_burned", "heart_rate_avg", "heart_rate_max", "sleep_hours",
+        # Raw performance fields (kept for potential downstream use)
+        "diastolic", "systolic", "gripForce", "sit and bend forward_cm", "sit-ups counts", "broad jump_cm", "class"
+    ]
+    df_final = df.select(*output_cols)
+
+    # Clean: remove rows with nulls in critical fields
+    df_final = df_final.filter(
+        col("first_name").isNotNull() &
+        col("height_cm").isNotNull() &
+        col("current_weight_kg").isNotNull() &
+        col("weight_kg").isNotNull()
+    )
+
+    print("✅ Single-table transform completed (body performance)")
+    return df_final
 
 if __name__ == "__main__":
     from spark.session import get_spark, stop_spark
     from processors.body_performance.config import LOCAL_FILE
-    
-    spark = get_spark("Transform_Body_Performance")
-    
+
+    spark = get_spark("Transform_Body_Performance_Single")
+
     try:
-        df_sessions, df_details = transform_body_performance(spark, str(LOCAL_FILE))
-        
+        df_final = transform_body_performance(spark, str(LOCAL_FILE))
+
         print("\n" + "=" * 60)
-        print("📋 TRANSFORMED DATA PREVIEW")
+        print("📋 TRANSFORMED DATA PREVIEW (BODY PERFORMANCE)")
         print("=" * 60)
-        
-        print("\n💪 WORKOUT SESSIONS:")
-        df_sessions.show(10, truncate=False)
-        
-        if df_details is not None:
-            print("\n🏋️ SESSION DETAILS:")
-            df_details.show(10, truncate=False)
-        
-        print(f"\n📊 Statistics:")
-        print(f"Workout sessions: {df_sessions.count()}")
-        if df_details:
-            print(f"Session details: {df_details.count()}")
-        
+        df_final.show(10, truncate=False)
+
+        # Save to CSV (single file)
+        output_path = "data/processed/_aligned/body_performance_processed.csv"
+        df_final.coalesce(1).write.mode("overwrite").option("header", True).csv(output_path)
+        print(f"\n✅ Processed data saved to: {output_path}")
+
     finally:
         stop_spark()
