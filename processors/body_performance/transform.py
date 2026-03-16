@@ -108,16 +108,13 @@ def transform_body_performance(spark, csv_path: str):
     ).withColumn(
         "user_id", user_uuid_udf(col("email"))
     ).withColumn(
-        # user_id_1: FK user_.user_id_1 → user_profile.user_id (same value)
-        "user_id_1", col("user_id")
-    ).withColumn(
         "metric_id", metric_uuid_udf(col("user_id"), col("recorded_date").cast("string"))
     )
 
     output_cols = [
         # user_ table
         "user_id", "email", "password_hash", "first_name", "last_name", "birth_date",
-        "gender_code", "created_at", "is_active", "role_code", "role_id", "user_id_1",
+        "gender_code", "created_at", "is_active", "role_code", "role_id",
         # user_profile table (user_id is PK — no separate profile_id)
         "height_cm", "current_weight_kg", "activity_level_ref",
         "allergies", "diet_type", "updated_at", "goal_id",

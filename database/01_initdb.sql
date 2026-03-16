@@ -100,19 +100,6 @@ CREATE TABLE connected_device(
    PRIMARY KEY(device_id)
 );
 
-CREATE TABLE user_metrics(
-   metric_id VARCHAR(50),
-   recorded_date TIMESTAMP,
-   weight_kg DECIMAL(5,2),
-   body_fat_pourcentage DECIMAL(4,1),
-   steps INT,
-   calories_burned DECIMAL(5,1),
-   heart_rate_avg INT,
-   heart_rate_max INT,
-   sleep_hours INT,
-   PRIMARY KEY(metric_id)
-);
-
 CREATE TABLE data_source(
    source_id VARCHAR(50),
    source_name VARCHAR(50),
@@ -195,19 +182,6 @@ CREATE TABLE organization(
    PRIMARY KEY(organization_id)
 );
 
-CREATE TABLE user_profile(
-   user_id VARCHAR(50),
-   height_cm DECIMAL(3,2),
-   current_weight_kg DECIMAL(5,2),
-   activity_level_ref VARCHAR(50),
-   allergies allergies_enum,
-   diet_type diet_type_enum,
-   updated_at TIMESTAMP,
-   goal_id VARCHAR(50),
-   PRIMARY KEY(user_id),
-   FOREIGN KEY(goal_id) REFERENCES health_goal(goal_id)
-);
-
 CREATE TABLE subscription_plan(
    plan_id VARCHAR(50),
    name VARCHAR(50),
@@ -234,11 +208,35 @@ CREATE TABLE user_(
    is_active BOOLEAN,
    role_code role_type_enum,
    role_id VARCHAR(50) NOT NULL,
-   user_id_1 VARCHAR(50) NOT NULL,
    PRIMARY KEY(user_id),
-   UNIQUE(user_id_1),
-   FOREIGN KEY(role_id) REFERENCES role(role_id),
-   FOREIGN KEY(user_id_1) REFERENCES user_profile(user_id)
+   FOREIGN KEY(role_id) REFERENCES role(role_id)
+);
+
+CREATE TABLE user_profile(
+   user_id VARCHAR(50),
+   height_cm DECIMAL(3,2),
+   current_weight_kg DECIMAL(5,2),
+   activity_level_ref VARCHAR(50),
+   allergies allergies_enum,
+   diet_type diet_type_enum,
+   updated_at TIMESTAMP,
+   goal_id VARCHAR(50),
+   PRIMARY KEY(user_id),
+   FOREIGN KEY(goal_id) REFERENCES health_goal(goal_id),
+   FOREIGN KEY(user_id) REFERENCES user_(user_id)
+);
+
+CREATE TABLE user_metrics(
+   metric_id VARCHAR(50),
+   recorded_date TIMESTAMP,
+   weight_kg DECIMAL(5,2),
+   body_fat_pourcentage DECIMAL(4,1),
+   steps INT,
+   calories_burned DECIMAL(5,1),
+   heart_rate_avg INT,
+   heart_rate_max INT,
+   sleep_hours INT,
+   PRIMARY KEY(metric_id)
 );
 
 CREATE TABLE subscription(

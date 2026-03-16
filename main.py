@@ -138,14 +138,14 @@ def run_all_pipelines_ordered():
 
         # FK-safe load order matching 01_initdb.sql dependency chain:
         # health_goal and role have no FKs so go first (seed tables).
-        # user_profile must precede user_ (user_.user_id_1 → user_profile.user_id).
+        # user_ must precede user_profile (user_profile.user_id → user_.user_id).
         # user_metrics and gets come after their parents.
         # workout_session and exercice_details come after user_ and exercise.
         load_order = [
             "health_goal",
             "role",
-            "user_profile",
             "user_",
+            "user_profile",
             "user_metrics",
             "gets",
             "exercise",

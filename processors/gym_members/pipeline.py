@@ -56,7 +56,6 @@ def run_pipeline():
                 "is_active":     "is_active",
                 "role_code":     "role_code",
                 "role_id":       "role_id",
-                "user_id_1":     "user_id_1",
             },
             "user_profile": {
                 "user_id":              "user_id",

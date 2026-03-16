@@ -20,7 +20,7 @@ DB_TABLE_SCHEMAS: Dict[str, List[str]] = {
         "user_id", "email", "password_hash",
         "first_name", "last_name", "birth_date", "gender_code",
         "created_at", "is_active", "role_code",
-        "role_id", "user_id_1",
+        "role_id",
     ],
     # Metrics (no user_id — linked via gets junction)
     "user_metrics": [
