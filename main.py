@@ -9,7 +9,7 @@ from processors.nutrition_values.pipeline import run_pipeline as run_nutrition_v
 from processors.gym_members.pipeline import run_pipeline as run_gym_members_pipeline
 from processors.body_performance.pipeline import run_pipeline as run_body_performance_pipeline
 from processors.fitness_tracker.pipeline import run_pipeline as run_fitness_tracker_pipeline
-from utils.load import aggregate_to_csv, load_csv_to_postgres, init_db_schema
+from utils.load import aggregate_to_csv, load_csv_to_postgres, init_db_schema, seed_reference_data
 from utils.logger import get_logger
 from spark.session import get_spark, stop_spark
 
@@ -123,15 +123,35 @@ def run_all_pipelines_ordered():
 
         # --- INIT DB SCHEMA ---
         if not init_db_schema():
-            logger.error("❌ Failed to initialize database schema from init.sql")
+            logger.error("❌ Failed to initialize database schema from 01_initdb.sql")
             failed_pipelines.append("DB Schema Init")
             stop_spark()
             return False, failed_pipelines
 
+        # --- SEED REFERENCE DATA (role, health_goal) ---
+        # Must run before loading user_ (FK role_id → role.role_id).
+        if not seed_reference_data():
+            logger.error("❌ Failed to seed reference data (role / health_goal)")
+            failed_pipelines.append("Seed Reference Data")
+            stop_spark()
+            return False, failed_pipelines
+
+        # FK-safe load order matching 01_initdb.sql dependency chain:
+        # health_goal and role have no FKs so go first (seed tables).
+        # user_profile must precede user_ (user_.user_id_1 → user_profile.user_id).
+        # user_metrics and gets come after their parents.
+        # workout_session and exercice_details come after user_ and exercise.
         load_order = [
-            "user", "exercise", "food",
-            "activity_type", "user_profile", "user_metrics",
-            "workout_session", "session_detail",
+            "health_goal",
+            "role",
+            "user_profile",
+            "user_",
+            "user_metrics",
+            "gets",
+            "exercise",
+            "workout_session",
+            "exercice_details",
+            "ingredients",
         ]
         load_failures = []
         for table in load_order:

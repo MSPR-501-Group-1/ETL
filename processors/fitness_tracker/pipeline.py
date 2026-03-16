@@ -35,21 +35,19 @@ def run_pipeline():
         
         # Step 2: Transform
         logger.info("🔄 TRANSFORM: Processing data...")
-        df_activities, df_sessions = transform_fitness_tracker(spark, str(LOCAL_FILE))
-        
-        if df_activities is None or df_activities.count() == 0:
+        df_sessions = transform_fitness_tracker(spark, str(LOCAL_FILE))
+
+        if df_sessions is None or df_sessions.count() == 0:
             log_pipeline_failure(logger, "Fitness Tracker", "Transformation produced no data")
             return False
-        
-        activity_count = df_activities.count()
+
         session_count = df_sessions.count()
-        logger.info(f"✅ Transformed {activity_count} activity types and {session_count} sessions")
-        
+        logger.info(f"✅ Transformed {session_count} workout sessions")
+
         # Step 3: Export to CSV
         logger.info("📦 Export to CSV...")
-        save_to_csv(df_activities, str(PROCESSED_DIR / "activity_type"))
         save_to_csv(df_sessions, str(PROCESSED_DIR / "workout_session"))
-        log_pipeline_success(logger, "Fitness Tracker", f"{activity_count} activities, {session_count} sessions exported to CSV")
+        log_pipeline_success(logger, "Fitness Tracker", f"{session_count} sessions exported to CSV")
         return True
             
     except Exception as e:

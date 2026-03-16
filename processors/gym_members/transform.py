@@ -6,7 +6,7 @@ from pyspark.sql.functions import (
 from pyspark.sql.types import StringType, DateType
 from datetime import datetime
 from utils.transform import load_raw_data
-from utils.uuid_utils import user_uuid_udf, profile_uuid_udf, metric_uuid_udf
+from utils.uuid_utils import user_uuid_udf, metric_uuid_udf, DEFAULT_FREEMIUM_ROLE_ID
 
 def generate_first_name(gender, key):
     """Generate deterministic first name from gender and row-key hash."""
@@ -75,16 +75,19 @@ def transform_gym_members(spark, csv_path: str):
     ).withColumn(
         "birth_date", birth_date_udf(col("Age"))
     ).withColumn(
+        # gender_code is INT in the new schema: 1=M, 2=F, 0=O
         "gender_code",
-        when(upper(trim(col("Gender"))) == "MALE", lit("M"))
-        .when(upper(trim(col("Gender"))) == "FEMALE", lit("F"))
-        .otherwise(lit("O"))
+        when(upper(trim(col("Gender"))) == "MALE", lit(1))
+        .when(upper(trim(col("Gender"))) == "FEMALE", lit(2))
+        .otherwise(lit(0))
     ).withColumn(
         "created_at", current_timestamp()
     ).withColumn(
         "is_active", lit(True)
     ).withColumn(
-        "role_code", lit("USER")
+        "role_code", lit("FREEMIUM")
+    ).withColumn(
+        "role_id", lit(DEFAULT_FREEMIUM_ROLE_ID)
     ).withColumn(
         # Height: meters to cm
         "height_cm", spark_round(col("Height (m)") * 100).cast("integer")
@@ -97,17 +100,20 @@ def transform_gym_members(spark, csv_path: str):
         .when(col("Experience_Level") == 3, lit("advanced"))
         .otherwise(lit("beginner"))
     ).withColumn(
-        "allergies_json", lit(None).cast("string")
+        "allergies", lit("NONE")
     ).withColumn(
-        "preferences_json", lit(None).cast("string")
+        "diet_type", lit("NONE")
     ).withColumn(
-        "profile_updated_at", current_timestamp()
+        "goal_id", lit(None).cast("string")
+    ).withColumn(
+        "updated_at", current_timestamp()
     ).withColumn(
         "recorded_date", current_date()
     ).withColumn(
         "weight_kg", spark_round(col("Weight (kg)"), 2)
     ).withColumn(
-        "body_fat_percentage", spark_round(col("Fat_Percentage"), 2)
+        # Renamed to match DB column (note the typo is in the schema)
+        "body_fat_pourcentage", spark_round(col("Fat_Percentage"), 2)
     ).withColumn(
         "steps", lit(None).cast("integer")
     ).withColumn(
@@ -117,26 +123,27 @@ def transform_gym_members(spark, csv_path: str):
     ).withColumn(
         "heart_rate_max", col("Max_BPM").cast("integer")
     ).withColumn(
-        "sleep_hours", lit(None).cast("double")
-    ).withColumn(
-        "metrics_created_at", current_timestamp()
+        "sleep_hours", lit(None).cast("integer")
     )
 
-    # Generate deterministic UUID v5 PKs and FKs.
-    # user_id is derived from email so it is stable and matches what
-    # fitness_tracker reads when it loads the processed user CSV.
+    # Generate deterministic UUID v5 PKs.
+    # user_id is derived from email — stable across re-runs.
+    # user_id_1 is an alias of user_id satisfying user_.user_id_1 → user_profile.user_id FK.
+    # metric_id is derived from user_id + recorded_date.
     df = df.withColumn("user_id", user_uuid_udf(col("email"))) \
-           .withColumn("profile_id", profile_uuid_udf(col("user_id"))) \
+           .withColumn("user_id_1", col("user_id")) \
            .withColumn("metric_id", metric_uuid_udf(col("user_id"), col("recorded_date").cast("string")))
 
-    # Select and order columns for clarity (all relevant fields, with IDs)
     output_cols = [
-        # User table fields
-        "user_id", "email", "password_hash", "first_name", "last_name", "birth_date", "gender_code", "created_at", "is_active", "role_code",
-        # User profile fields
-        "profile_id", "height_cm", "current_weight_kg", "activity_level_ref", "allergies_json", "preferences_json", "profile_updated_at",
-        # User metrics fields
-        "metric_id", "recorded_date", "weight_kg", "body_fat_percentage", "steps", "calories_burned", "heart_rate_avg", "heart_rate_max", "sleep_hours", "metrics_created_at"
+        # user_ table
+        "user_id", "email", "password_hash", "first_name", "last_name", "birth_date",
+        "gender_code", "created_at", "is_active", "role_code", "role_id", "user_id_1",
+        # user_profile table (user_id shared as PK — no separate profile_id)
+        "height_cm", "current_weight_kg", "activity_level_ref",
+        "allergies", "diet_type", "updated_at", "goal_id",
+        # user_metrics table (no user_id — linked via gets junction)
+        "metric_id", "recorded_date", "weight_kg", "body_fat_pourcentage",
+        "steps", "calories_burned", "heart_rate_avg", "heart_rate_max", "sleep_hours",
     ]
     df_final = df.select(*output_cols)
 
@@ -144,7 +151,6 @@ def transform_gym_members(spark, csv_path: str):
     df_final = df_final.filter(
         col("email").isNotNull() &
         col("first_name").isNotNull() &
-        col("gender_code").isNotNull() &
         col("height_cm").isNotNull() &
         col("current_weight_kg").isNotNull() &
         col("weight_kg").isNotNull()

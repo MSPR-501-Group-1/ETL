@@ -49,8 +49,8 @@ def run_pipeline():
         
         # Step 3: Export to CSV
         logger.info("📦 Export to CSV...")
-        save_to_csv(df_transformed, str(PROCESSED_DIR / "food"))
-        log_pipeline_success(logger, "Nutrition Values", f"{count} foods exported to CSV")
+        save_to_csv(df_transformed, str(PROCESSED_DIR / "ingredients"))
+        log_pipeline_success(logger, "Nutrition Values", f"{count} ingredients exported to CSV")
         return True
             
     except Exception as e:

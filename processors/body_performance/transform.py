@@ -1,11 +1,11 @@
 from pyspark.sql.functions import (
     col, trim, upper, when, lit, udf, current_date, current_timestamp,
-    round as spark_round, concat
+    round as spark_round, concat, md5, concat_ws
 )
 from pyspark.sql.types import StringType, DateType
 from datetime import datetime
 from utils.transform import load_raw_data
-from utils.uuid_utils import user_uuid_udf, profile_uuid_udf, metric_uuid_udf
+from utils.uuid_utils import user_uuid_udf, metric_uuid_udf, DEFAULT_FREEMIUM_ROLE_ID
 
 def generate_first_name(gender, key):
     """Generate deterministic first name from gender and row-key hash."""
@@ -53,16 +53,19 @@ def transform_body_performance(spark, csv_path: str):
     ).withColumn(
         "birth_date", lit(None).cast(DateType())
     ).withColumn(
+        # gender_code is INT in the new schema: 1=M, 2=F, 0=other
         "gender_code",
-        when(upper(trim(col("gender"))) == "M", lit("M"))
-        .when(upper(trim(col("gender"))) == "F", lit("F"))
-        .otherwise(lit("O"))
+        when(upper(trim(col("gender"))) == "M", lit(1))
+        .when(upper(trim(col("gender"))) == "F", lit(2))
+        .otherwise(lit(0))
     ).withColumn(
         "created_at", current_timestamp()
     ).withColumn(
         "is_active", lit(True)
     ).withColumn(
-        "role_code", lit("USER")
+        "role_code", lit("FREEMIUM")
+    ).withColumn(
+        "role_id", lit(DEFAULT_FREEMIUM_ROLE_ID)
     ).withColumn(
         "height_cm", spark_round(col("height_cm")).cast("integer")
     ).withColumn(
@@ -70,17 +73,19 @@ def transform_body_performance(spark, csv_path: str):
     ).withColumn(
         "activity_level_ref", lit(None).cast("string")
     ).withColumn(
-        "allergies_json", lit(None).cast("string")
+        "allergies", lit("NONE")
     ).withColumn(
-        "preferences_json", lit(None).cast("string")
+        "diet_type", lit("NONE")
     ).withColumn(
-        "profile_updated_at", current_timestamp()
+        "goal_id", lit(None).cast("string")
+    ).withColumn(
+        "updated_at", current_timestamp()
     ).withColumn(
         "recorded_date", current_date()
     ).withColumn(
         "weight_kg", spark_round(col("weight_kg"), 2)
     ).withColumn(
-        "body_fat_percentage", spark_round(col("body fat_%"), 2)
+        "body_fat_pourcentage", spark_round(col("body fat_%"), 2)
     ).withColumn(
         "steps", lit(None).cast("integer")
     ).withColumn(
@@ -90,9 +95,7 @@ def transform_body_performance(spark, csv_path: str):
     ).withColumn(
         "heart_rate_max", lit(None).cast("integer")
     ).withColumn(
-        "sleep_hours", lit(None).cast("double")
-    ).withColumn(
-        "metrics_created_at", current_timestamp()
+        "sleep_hours", lit(None).cast("integer")
     )
 
     # Synthetic email — body performance has no real identity data, so we
@@ -105,20 +108,23 @@ def transform_body_performance(spark, csv_path: str):
     ).withColumn(
         "user_id", user_uuid_udf(col("email"))
     ).withColumn(
-        "profile_id", profile_uuid_udf(col("user_id"))
+        # user_id_1: FK user_.user_id_1 → user_profile.user_id (same value)
+        "user_id_1", col("user_id")
     ).withColumn(
         "metric_id", metric_uuid_udf(col("user_id"), col("recorded_date").cast("string"))
     )
 
-    # Select and order columns for clarity (all relevant fields, with IDs)
     output_cols = [
-        # User table fields
-        "user_id", "email", "password_hash", "first_name", "last_name", "birth_date", "gender_code", "created_at", "is_active", "role_code",
-        # User profile fields
-        "profile_id", "height_cm", "current_weight_kg", "activity_level_ref", "allergies_json", "preferences_json", "profile_updated_at",
-        # User metrics fields
-        "metric_id", "recorded_date", "weight_kg", "body_fat_percentage", "steps", "calories_burned", "heart_rate_avg", "heart_rate_max", "sleep_hours", "metrics_created_at",
-        # Raw performance fields
+        # user_ table
+        "user_id", "email", "password_hash", "first_name", "last_name", "birth_date",
+        "gender_code", "created_at", "is_active", "role_code", "role_id", "user_id_1",
+        # user_profile table (user_id is PK — no separate profile_id)
+        "height_cm", "current_weight_kg", "activity_level_ref",
+        "allergies", "diet_type", "updated_at", "goal_id",
+        # user_metrics table (no user_id — linked via gets junction)
+        "metric_id", "recorded_date", "weight_kg", "body_fat_pourcentage",
+        "steps", "calories_burned", "heart_rate_avg", "heart_rate_max", "sleep_hours",
+        # Raw performance fields (kept for potential downstream use)
         "diastolic", "systolic", "gripForce", "sit and bend forward_cm", "sit-ups counts", "broad jump_cm", "class"
     ]
     df_final = df.select(*output_cols)
@@ -126,7 +132,6 @@ def transform_body_performance(spark, csv_path: str):
     # Clean: remove rows with nulls in critical fields
     df_final = df_final.filter(
         col("first_name").isNotNull() &
-        col("gender_code").isNotNull() &
         col("height_cm").isNotNull() &
         col("current_weight_kg").isNotNull() &
         col("weight_kg").isNotNull()

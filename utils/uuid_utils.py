@@ -15,7 +15,8 @@ NAMESPACE_ACTIVITY = uuid.UUID('6ba7b813-9dad-11d1-80b4-00c04fd430c8')
 NAMESPACE_SESSION = uuid.UUID('6ba7b814-9dad-11d1-80b4-00c04fd430c8')
 NAMESPACE_DETAIL = uuid.UUID('6ba7b815-9dad-11d1-80b4-00c04fd430c8')
 NAMESPACE_PROFILE = uuid.UUID('6ba7b816-9dad-11d1-80b4-00c04fd430c8')
-NAMESPACE_METRIC = uuid.UUID('6ba7b817-9dad-11d1-80b4-00c04fd430c8')
+NAMESPACE_METRIC  = uuid.UUID('6ba7b817-9dad-11d1-80b4-00c04fd430c8')
+NAMESPACE_ROLE    = uuid.UUID('6ba7b818-9dad-11d1-80b4-00c04fd430c8')
 
 # Python functions for UUID generation
 def generate_user_uuid(email: str) -> str:
@@ -70,8 +71,18 @@ def generate_metric_uuid(user_id: str, date: str) -> str:
     key = f"{user_id}|{date}"
     return str(uuid.uuid5(NAMESPACE_METRIC, key))
 
+def generate_role_uuid(role_name: str) -> str:
+    """Generate deterministic role UUID from role name (e.g. 'FREEMIUM')."""
+    if not role_name:
+        return None
+    return str(uuid.uuid5(NAMESPACE_ROLE, role_name))
+
+# Pre-computed default role IDs — used in pipelines and seed SQL (Step 10)
+DEFAULT_FREEMIUM_ROLE_ID = generate_role_uuid("FREEMIUM")
+
 # PySpark UDFs for use in transformations
 user_uuid_udf = udf(generate_user_uuid, StringType())
+role_uuid_udf = udf(generate_role_uuid, StringType())
 exercise_uuid_udf = udf(generate_exercise_uuid, StringType())
 food_uuid_udf = udf(generate_food_uuid, StringType())
 activity_uuid_udf = udf(generate_activity_uuid, StringType())

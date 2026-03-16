@@ -53,7 +53,7 @@ def run_pipeline():
         # tables: user, user_profile, and user_metrics (with FK user_id linkage).
         logger.info("📦 Splitting and saving per table...")
         table_column_map = {
-            "user": {
+            "user_": {
                 "user_id":       "user_id",
                 "email":         "email",
                 "password_hash": "password_hash",
@@ -64,33 +64,33 @@ def run_pipeline():
                 "created_at":    "created_at",
                 "is_active":     "is_active",
                 "role_code":     "role_code",
+                "role_id":       "role_id",
+                "user_id_1":     "user_id_1",
             },
             "user_profile": {
-                "profile_id":           "profile_id",
                 "user_id":              "user_id",
                 "height_cm":            "height_cm",
                 "current_weight_kg":    "current_weight_kg",
                 "activity_level_ref":   "activity_level_ref",
-                "allergies_json":       "allergies_json",
-                "preferences_json":     "preferences_json",
-                "profile_updated_at":   "updated_at",
+                "allergies":            "allergies",
+                "diet_type":            "diet_type",
+                "updated_at":           "updated_at",
+                "goal_id":              "goal_id",
             },
             "user_metrics": {
-                "metric_id":           "metric_id",
-                "user_id":             "user_id",
-                "recorded_date":       "recorded_date",
-                "weight_kg":           "weight_kg",
-                "body_fat_percentage": "body_fat_percentage",
-                "steps":               "steps",
-                "calories_burned":     "calories_burned",
-                "heart_rate_avg":      "heart_rate_avg",
-                "heart_rate_max":      "heart_rate_max",
-                "sleep_hours":         "sleep_hours",
-                "metrics_created_at":  "created_at",
+                "metric_id":            "metric_id",
+                "recorded_date":        "recorded_date",
+                "weight_kg":            "weight_kg",
+                "body_fat_pourcentage": "body_fat_pourcentage",
+                "steps":                "steps",
+                "calories_burned":      "calories_burned",
+                "heart_rate_avg":       "heart_rate_avg",
+                "heart_rate_max":       "heart_rate_max",
+                "sleep_hours":          "sleep_hours",
             },
         }
         split_and_save_per_table(df_transformed, PROCESSED_DIR, table_column_map)
-        log_pipeline_success(logger, "Body Performance", f"{count} body performance records split into user / user_profile / user_metrics")
+        log_pipeline_success(logger, "Body Performance", f"{count} body performance records split into user_ / user_profile / user_metrics")
         return True
             
     except Exception as e:
