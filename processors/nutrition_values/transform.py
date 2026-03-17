@@ -1,7 +1,7 @@
 import traceback
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import (
-    col, trim, lower, when, lit, udf, regexp_replace, round as spark_round,
+    col, trim, when, lit, udf, round as spark_round,
     coalesce, least, substring, regexp_extract
 )
 from pyspark.sql.types import StringType, DoubleType
@@ -49,9 +49,7 @@ def _map_category(raw_cat):
         return "SNACK"
     return "OTHER"
 
-from pyspark.sql.types import StringType as _ST
-from pyspark.sql.functions import udf as _udf
-_map_category_udf = _udf(_map_category, _ST())
+_map_category_udf = udf(_map_category, StringType())
 
 def map_to_mcd_schema(df: DataFrame) -> DataFrame:
     """
@@ -214,7 +212,7 @@ if __name__ == "__main__":
             
             # Show stats
             print("\n📈 Statistics:")
-            df_transformed.select("calories_100g", "protein_100g", "carbs_100g", "fat_100g").describe().show()
+            df_transformed.select("calories_g", "protein_g", "carbs_g", "fat_g").describe().show()
     
     finally:
         stop_spark()

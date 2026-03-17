@@ -28,20 +28,24 @@ def run_pipeline():
             import pandas as pd
             df_raw = pd.read_csv(str(LOCAL_FILE))
             logger.info(f"✅ Extracted {len(df_raw)} foods")
-        except:
+        except Exception:
             logger.info(f"✅ Extracted data to {file_path}")
         
         # Step 2: Transform
         logger.info("🔄 TRANSFORM: Processing data...")
         df_transformed = transform_nutrition(spark, str(LOCAL_FILE))
         
-        if df_transformed is None or df_transformed.count() == 0:
+        if df_transformed is None:
             log_pipeline_failure(logger, "Nutrition", "Transformation produced no data")
             return False
-        
+
         count = df_transformed.count()
+        if count == 0:
+            log_pipeline_failure(logger, "Nutrition", "Transformation produced no data")
+            return False
+
         logger.info(f"✅ Transformed {count} foods")
-        
+
         # Step 3: Export to CSV
         logger.info("📦 Export to CSV...")
         if not save_and_load_table(df_transformed, "ingredients", PROCESSED_DIR):

@@ -3,7 +3,7 @@ Transform nutrition data with PySpark to match MCD schema
 """
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import (
-    col, trim, lower, when, lit, udf, regexp_replace, round as spark_round,
+    col, trim, lower, when, lit, udf, round as spark_round,
     coalesce, least, substring
 )
 from pyspark.sql.types import StringType, DoubleType
@@ -25,7 +25,6 @@ def _tc(c_name: str):
 def _cap(expr):
     """Clamp value to DECIMAL(4,1) max (999.9)."""
     return least(expr, lit(_MAX_DECIMAL_4_1))
-import uuid
 from utils.transform import load_raw_data, ensure_columns
 from utils.uuid_utils import food_uuid_udf
 
@@ -50,9 +49,7 @@ def _map_category(raw_cat):
         return "SNACK"
     return "OTHER"
 
-from pyspark.sql.types import StringType as _ST
-from pyspark.sql.functions import udf as _udf
-_map_category_udf = _udf(_map_category, _ST())
+_map_category_udf = udf(_map_category, StringType())
 
 
 def map_to_mcd_schema(df: DataFrame) -> DataFrame:
@@ -169,7 +166,7 @@ if __name__ == "__main__":
         print(f"\n📈 Statistics:")
         print(f"Total: {df_transformed.count()} foods")
         print(f"\nCategories:")
-        df_transformed.groupBy("category_ref").count().show()
+        df_transformed.groupBy("category").count().show()
         
     finally:
         stop_spark()

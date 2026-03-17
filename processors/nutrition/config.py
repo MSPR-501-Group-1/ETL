@@ -20,5 +20,3 @@ LOCAL_ZIP = RAW_DIR / DATASET_FILENAME
 LOCAL_FILE = RAW_DIR / "Nutrition_Dataset.csv"
 
 # Output paths
-OUTPUT_PARQUET = PROCESSED_DIR / "nutrition_processed.parquet"
-OUTPUT_CSV = PROCESSED_DIR / "Nutrition_processed.csv"
