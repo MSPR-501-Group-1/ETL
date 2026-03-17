@@ -1,12 +1,9 @@
-from pyspark.sql import functions as F
 from spark.session import get_spark, stop_spark
 from processors.nutrition.transform import transform_nutrition
-from processors.nutrition.config import LOCAL_FILE, LOCAL_ZIP, RAW_DIR, KAGGLE_DATASET, PROCESSED_DIR, SOURCE_ID
+from processors.nutrition.config import LOCAL_FILE, LOCAL_ZIP, RAW_DIR, KAGGLE_DATASET, PROCESSED_DIR
 from utils.kaggle.extract import download_kaggle
 from utils.load import save_and_load_table
 from utils.logger import get_logger, log_pipeline_start, log_pipeline_success, log_pipeline_failure
-from utils.etl_tracking import start_execution, end_execution
-from utils.quality import QualityRule, run_quality_checks
 import traceback
 
 logger = get_logger(__name__)
@@ -14,80 +11,46 @@ logger = get_logger(__name__)
 def run_pipeline():
     
     log_pipeline_start(logger, "🍎 Nutrition Pipeline")
-
-    # ── Ouvrir le run de tracking ─────────────────────────────────────────────
-    execution_id = start_execution(SOURCE_ID)
-    records_extracted = 0
-    records_rejected  = 0
-
+    
     try:
         # Step 1: Extract
         logger.info("📥 EXTRACT: Downloading nutrition data...")
         file_path = download_kaggle(LOCAL_ZIP, LOCAL_FILE, RAW_DIR, KAGGLE_DATASET)
-
+    
+        
         if not file_path:
             log_pipeline_failure(logger, "Nutrition", "Extraction failed")
-            end_execution(execution_id, status=False, error_message="Extraction failed")
             return False
-
-        # Step 1b: Charger le CSV brut avec Spark
+        
+        # Quick count of extracted data
         spark = get_spark("Nutrition_Pipeline")
-        df_raw = spark.read.option("header", "true").csv(str(LOCAL_FILE))
-        records_extracted = df_raw.count()
-        logger.info(f"✅ Extracted {records_extracted} foods")
-
-        # Step 1c: Data Quality checks sur le DataFrame brut
-        # Les noms de colonnes correspondent au CSV brut avant normalisation
-        rules = [
-            QualityRule(
-                check_type="NULL_CHECK",
-                check_rule="Food_Item IS NOT NULL",
-                target_table="ingredients",
-                fail_condition=F.col("Food_Item").isNull(),
-                source_col="Food_Item",
-                identifier_col="Food_Item",
-            ),
-            QualityRule(
-                check_type="RANGE_CHECK",
-                check_rule="Calories (kcal) >= 0",
-                target_table="ingredients",
-                fail_condition=F.expr("try_cast(`Calories (kcal)` as double)") < 0,
-                source_col="Calories (kcal)",
-                identifier_col="Food_Item",
-            ),
-        ]
-        _, records_rejected = run_quality_checks(
-            df_raw, rules, execution_id, source_table="nutrition_raw"
-        )
-
+        try:
+            import pandas as pd
+            df_raw = pd.read_csv(str(LOCAL_FILE))
+            logger.info(f"✅ Extracted {len(df_raw)} foods")
+        except Exception:
+            logger.info(f"✅ Extracted data to {file_path}")
+        
         # Step 2: Transform
         logger.info("🔄 TRANSFORM: Processing data...")
         df_transformed = transform_nutrition(spark, str(LOCAL_FILE))
         
         if df_transformed is None:
             log_pipeline_failure(logger, "Nutrition", "Transformation produced no data")
-            end_execution(execution_id, status=False, error_message="Transform produced no data")
             return False
 
         count = df_transformed.count()
         if count == 0:
             log_pipeline_failure(logger, "Nutrition", "Transformation produced no data")
-            end_execution(execution_id, status=False, error_message="Transform produced no data")
             return False
 
         logger.info(f"✅ Transformed {count} foods")
 
-        # Step 3: Export to CSV + chargement PostgreSQL
+        # Step 3: Export to CSV
         logger.info("📦 Export to CSV...")
         if not save_and_load_table(df_transformed, "ingredients", PROCESSED_DIR):
             log_pipeline_failure(logger, "Nutrition", "Failed to load ingredients table")
-            end_execution(execution_id, status=False, error_message="Load failed")
             return False
-
-        end_execution(execution_id, status=True,
-                      records_extracted=records_extracted,
-                      records_loaded=count,
-                      records_rejected=records_rejected)
         log_pipeline_success(logger, "Nutrition", f"{count} ingredients loaded")
         return True
             
@@ -96,7 +59,6 @@ def run_pipeline():
         logger.error(f"Exception occurred: {error_msg}")
         logger.debug(traceback.format_exc())
         log_pipeline_failure(logger, "Nutrition", error_msg)
-        end_execution(execution_id, status=False, error_message=error_msg[:50])
         return False
         
     finally:
