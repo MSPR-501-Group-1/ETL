@@ -2,7 +2,7 @@ from spark.session import get_spark, stop_spark
 from processors.exercises.transform import transform_exercises
 from processors.exercises.config import LOCAL_FILE, URLS, PROCESSED_DIR
 from utils.github.extract import download_github
-from utils.transform import save_to_csv
+from utils.load import save_and_load_table
 
 from utils.logger import get_logger, log_pipeline_start, log_pipeline_success, log_pipeline_failure
 import traceback
@@ -16,7 +16,7 @@ def run_pipeline():
     try:
         # Step 1: Extract
         logger.info("📥 EXTRACT: Downloading exercises data...")
-        data = download_github(LOCAL_FILE, URLS, force_download=True)
+        data = download_github(LOCAL_FILE, URLS, force_download=False)
 
         
         if not data:
@@ -30,16 +30,17 @@ def run_pipeline():
         spark = get_spark("Exercises_Pipeline")
         
         df_transformed = transform_exercises(spark, str(LOCAL_FILE))
-        
-        if df_transformed is None or df_transformed.count() == 0:
+        count = df_transformed.count()
+
+        if count == 0:
             log_pipeline_failure(logger, "Exercises", "Transformation produced no data")
             return False
         
-        count = df_transformed.count()
-        
-        logger.info("📦 Export to CSV...")
-        save_to_csv(df_transformed, str(PROCESSED_DIR / "exercise"))
-        logger.info(f"✅ Exported {count} exercises to CSV")
+        logger.info("📦 Save and load to PostgreSQL...")
+        if not save_and_load_table(df_transformed, "exercise", PROCESSED_DIR):
+            log_pipeline_failure(logger, "Exercises", "Failed to load exercise table")
+            return False
+        log_pipeline_success(logger, "Exercises", f"{count} exercises loaded")
         return True
 
     except Exception as e:

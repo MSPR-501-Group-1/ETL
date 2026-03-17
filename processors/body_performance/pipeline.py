@@ -6,8 +6,9 @@ from spark.session import get_spark, stop_spark
 from processors.body_performance.transform import transform_body_performance
 from processors.body_performance.config import KAGGLE_DATASET, LOCAL_FILE, RAW_DIR, LOCAL_ZIP, PROCESSED_DIR
 from utils.kaggle.extract import download_kaggle
-from utils.transform import split_and_save_per_table
+from utils.load import save_and_load_table
 from utils.logger import get_logger
+from pyspark.sql.functions import col as _col
 
 logger = get_logger(__name__)
 
@@ -88,8 +89,21 @@ def run_pipeline():
                 "sleep_hours":          "sleep_hours",
             },
         }
-        split_and_save_per_table(df_transformed, PROCESSED_DIR, table_column_map)
-        log_pipeline_success(logger, "Body Performance", f"{count} body performance records split into user_ / user_profile / user_metrics")
+        table_load_order = ["user_", "user_profile", "user_metrics"]
+        load_failures = []
+        for table_name in table_load_order:
+            col_map = table_column_map[table_name]
+            sub_df = df_transformed.select([
+                _col(flat).alias(schema)
+                for flat, schema in col_map.items()
+                if flat in df_transformed.columns
+            ])
+            if not save_and_load_table(sub_df, table_name, PROCESSED_DIR):
+                load_failures.append(table_name)
+        if load_failures:
+            log_pipeline_failure(logger, "Body Performance", f"Failed to load: {', '.join(load_failures)}")
+            return False
+        log_pipeline_success(logger, "Body Performance", f"{count} records loaded into user_ / user_profile / user_metrics")
         return True
             
     except Exception as e:

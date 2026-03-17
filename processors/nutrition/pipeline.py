@@ -2,7 +2,7 @@ from spark.session import get_spark, stop_spark
 from processors.nutrition.transform import transform_nutrition
 from processors.nutrition.config import LOCAL_FILE, LOCAL_ZIP, RAW_DIR, KAGGLE_DATASET, PROCESSED_DIR
 from utils.kaggle.extract import download_kaggle
-from utils.transform import save_to_csv
+from utils.load import save_and_load_table
 from utils.logger import get_logger, log_pipeline_start, log_pipeline_success, log_pipeline_failure
 import traceback
 
@@ -44,8 +44,10 @@ def run_pipeline():
         
         # Step 3: Export to CSV
         logger.info("📦 Export to CSV...")
-        save_to_csv(df_transformed, str(PROCESSED_DIR / "ingredients"))
-        log_pipeline_success(logger, "Nutrition", f"{count} ingredients exported to CSV")
+        if not save_and_load_table(df_transformed, "ingredients", PROCESSED_DIR):
+            log_pipeline_failure(logger, "Nutrition", "Failed to load ingredients table")
+            return False
+        log_pipeline_success(logger, "Nutrition", f"{count} ingredients loaded")
         return True
             
     except Exception as e:

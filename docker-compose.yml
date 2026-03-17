@@ -1,5 +1,25 @@
+x-etl-base: &etl-base
+  build: .
+  depends_on:
+    postgres:
+      condition: service_healthy
+  environment:
+    DB_HOST: postgres
+    DB_PORT: 5432
+    DB_NAME: ${DB_NAME:-healthai_db}
+    DB_USER: ${DB_USER:-healthai}
+    DB_PASSWORD: ${DB_PASSWORD:-password}
+    SPARK_MASTER: local[*]
+    KAGGLE_USERNAME: ${KAGGLE_USERNAME}
+    KAGGLE_KEY: ${KAGGLE_API_TOKEN}
+  volumes:
+    - ./data:/app/data
+    - ./logs:/app/logs
+  networks:
+    - healthai_network
+
 services:
-  # PostgreSQL Database
+  # ── PostgreSQL ────────────────────────────────────────────────────────────
   postgres:
     image: postgres:15-alpine
     container_name: healthai_postgres
@@ -11,41 +31,53 @@ services:
       - "${DB_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./database/01_initdb.sql:/docker-entrypoint-initdb.d/01_initdb.sql
     networks:
       - healthai_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U healthai -d healthai_db"]
+      test: ["CMD-SHELL", "pg_isready -U healthai -d healthai_db && psql -U healthai -d healthai_db -c 'SELECT 1 FROM role LIMIT 1' > /dev/null 2>&1"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 15
+      start_period: 30s
 
-  # ETL Service
+  # ── ETL services ─────────────────────────────────────────────────────────
+  # Run all pipelines:       docker-compose run --rm etl
+  # Run a single pipeline:   docker-compose run --rm etl-exercises
   etl:
-    build: .
+    <<: *etl-base
     container_name: healthai_etl
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: ${DB_NAME:-healthai_db}
-      DB_USER: ${DB_USER:-healthai}
-      DB_PASSWORD: ${DB_PASSWORD:-password}
-      SPARK_MASTER: local[*]
-      # Kaggle credentials (loaded from .env file)
-      KAGGLE_USERNAME: ${KAGGLE_USERNAME}
-      KAGGLE_KEY: ${KAGGLE_API_TOKEN}
-    volumes:
-      - ./data:/app/data
-      - ./logs:/app/logs
-      # Optional: Mount Kaggle credentials from host
-      # - ~/.kaggle:/root/.kaggle:ro
-    networks:
-      - healthai_network
-    # Runs all pipelines by default
-    # Override with: command: python3 main.py --pipeline exercises
+    command: python3 main.py
+
+  etl-exercises:
+    <<: *etl-base
+    container_name: healthai_etl_exercises
+    command: python3 main.py exercises
+
+  etl-body-performance:
+    <<: *etl-base
+    container_name: healthai_etl_body_performance
+    command: python3 main.py body_performance
+
+  etl-gym-members:
+    <<: *etl-base
+    container_name: healthai_etl_gym_members
+    command: python3 main.py gym_members
+
+  etl-fitness-tracker:
+    <<: *etl-base
+    container_name: healthai_etl_fitness_tracker
+    command: python3 main.py fitness_tracker
+
+  etl-nutrition:
+    <<: *etl-base
+    container_name: healthai_etl_nutrition
+    command: python3 main.py nutrition
+
+  etl-nutrition-values:
+    <<: *etl-base
+    container_name: healthai_etl_nutrition_values
+    command: python3 main.py nutrition_values
 
 volumes:
   postgres_data:

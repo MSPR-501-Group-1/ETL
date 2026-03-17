@@ -3,9 +3,28 @@ Transform nutrition data with PySpark to match MCD schema
 """
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import (
-    col, trim, lower, when, lit, udf, regexp_replace, round as spark_round
+    col, trim, lower, when, lit, udf, regexp_replace, round as spark_round,
+    coalesce, least, substring
 )
-from pyspark.sql.types import StringType
+from pyspark.sql.types import StringType, DoubleType
+
+# Numeric pattern: optional leading minus, digits, optional decimal part
+_NUM_RE = r'^-?\d+(\.\d+)?$'
+# All numeric columns are DECIMAL(4,1) → max 999.9
+_MAX_DECIMAL_4_1 = 999.9
+
+
+def _tc(c_name: str):
+    """Safe cast to double, rounded to 2 dp; returns NULL when value is non-numeric."""
+    return spark_round(
+        when(col(c_name).rlike(_NUM_RE), col(c_name).cast(DoubleType())).otherwise(lit(None)),
+        2
+    )
+
+
+def _cap(expr):
+    """Clamp value to DECIMAL(4,1) max (999.9)."""
+    return least(expr, lit(_MAX_DECIMAL_4_1))
 import uuid
 from utils.transform import load_raw_data, ensure_columns
 from utils.uuid_utils import food_uuid_udf
@@ -67,61 +86,35 @@ def map_to_mcd_schema(df: DataFrame) -> DataFrame:
     ])
 
     df_mapped = df_with_name.select(
-        food_uuid_udf(col("name"), lit(None)).alias("ingredients_id"),
-        col("name"),
+        food_uuid_udf(substring(col("name"), 1, 50), lit(None)).alias("ingredients_id"),
+        substring(col("name"), 1, 50).alias("name"),
 
-        # Nutritional values
-        when(col("calories_kcal").isNotNull(), spark_round(col("calories_kcal"), 2))
-        .otherwise(lit(0.0))
-        .alias("calories_g"),
+        _cap(coalesce(_tc("calories_kcal"), lit(0.0))).alias("calories_g"),
 
-        when(col("protein_g").isNotNull(), spark_round(col("protein_g"), 2))
-        .when(col("protein").isNotNull(), spark_round(col("protein"), 2))
-        .otherwise(lit(0.0))
-        .alias("protein_g"),
+        _cap(coalesce(_tc("protein_g"), _tc("protein"), lit(0.0))).alias("protein_g"),
 
-        when(col("carbohydrates_g").isNotNull(), spark_round(col("carbohydrates_g"), 2))
-        .when(col("carbohydrate_g").isNotNull(), spark_round(col("carbohydrate_g"), 2))
-        .when(col("carbs_g").isNotNull(), spark_round(col("carbs_g"), 2))
-        .when(col("carbohydrates").isNotNull(), spark_round(col("carbohydrates"), 2))
-        .otherwise(lit(0.0))
-        .alias("carbs_g"),
+        _cap(coalesce(
+            _tc("carbohydrates_g"), _tc("carbohydrate_g"),
+            _tc("carbs_g"), _tc("carbohydrates"), lit(0.0)
+        )).alias("carbs_g"),
 
-        when(col("fat_g").isNotNull(), spark_round(col("fat_g"), 2))
-        .when(col("total_fat").isNotNull(), spark_round(col("total_fat"), 2))
-        .otherwise(lit(0.0))
-        .alias("fat_g"),
+        _cap(coalesce(_tc("fat_g"), _tc("total_fat"), lit(0.0))).alias("fat_g"),
 
-        # nutriscore: NULL for now (nutriscore_enum: A-E)
         lit(None).cast(StringType()).alias("nutriscore"),
 
-        # category mapped to category_enum
         _map_category_udf(
             when(col("category").isNotNull(), col("category"))
             .when(col("food_category").isNotNull(), col("food_category"))
             .otherwise(lit(None))
         ).alias("category"),
 
-        when(col("fiber_g").isNotNull(), spark_round(col("fiber_g"), 2))
-        .when(col("dietary_fiber").isNotNull(), spark_round(col("dietary_fiber"), 2))
-        .otherwise(lit(0.0))
-        .alias("fiber_g"),
+        _cap(coalesce(_tc("fiber_g"), _tc("dietary_fiber"), lit(0.0))).alias("fiber_g"),
 
-        when(col("sugars_g").isNotNull(), spark_round(col("sugars_g"), 2))
-        .when(col("sugar_g").isNotNull(), spark_round(col("sugar_g"), 2))
-        .when(col("sugars").isNotNull(), spark_round(col("sugars"), 2))
-        .otherwise(lit(0.0))
-        .alias("sugar_g"),
+        _cap(coalesce(_tc("sugars_g"), _tc("sugar_g"), _tc("sugars"), lit(0.0))).alias("sugar_g"),
 
-        when(col("sodium_mg").isNotNull(), spark_round(col("sodium_mg"), 2))
-        .when(col("sodium").isNotNull(), spark_round(col("sodium"), 2))
-        .otherwise(lit(0.0))
-        .alias("sodium_mg"),
+        _cap(coalesce(_tc("sodium_mg"), _tc("sodium"), lit(0.0))).alias("sodium_mg"),
 
-        when(col("cholesterol_mg").isNotNull(), spark_round(col("cholesterol_mg"), 2))
-        .when(col("cholesterol").isNotNull(), spark_round(col("cholesterol"), 2))
-        .otherwise(lit(0.0))
-        .alias("cholesterol_mg")
+        _cap(coalesce(_tc("cholesterol_mg"), _tc("cholesterol"), lit(0.0))).alias("cholesterol_mg"),
     )
 
     return df_mapped

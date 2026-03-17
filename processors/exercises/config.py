@@ -13,8 +13,7 @@ PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
 # Source URLs
 URLS = [
-    "https://raw.githubusercontent.com/ExerciseDB/exercisedb-api/main/exercises.json",
-    "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/dist/exercises.json"
+    "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/dist/exercises.json",
 ]
 
 # Local file
