@@ -1,78 +1,36 @@
 """
-Common load utilities for all ETL pipelines.
+Load utilities for the ETL pipeline.
+
+  - init_db_schema       : run 01_initdb.sql against PostgreSQL
+  - save_and_load_table  : align DataFrame to schema, write CSV, COPY to PostgreSQL
+  - load_csv_to_postgres : bulk-load a CSV into PostgreSQL via COPY
+
+Reference data seeding  → utils/seed.py
+ETL execution tracking  → utils/etl_tracking.py
 """
 import csv
 import glob
+import os
 import shutil
 from pathlib import Path
+from typing import Dict, List, Optional
 
 import psycopg2
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import lit
 
-
-from utils.logger import get_logger
 from utils.db_utils import DB_TABLE_SCHEMAS, get_db_config
-import os
+from utils.logger import get_logger
 
-def seed_reference_data() -> bool:
-    """
-    Insert required reference rows into `role` and `health_goal` before any
-    pipeline data is loaded.  Uses ON CONFLICT DO NOTHING so re-runs are safe.
+logger = get_logger(__name__)
 
-    role_id values are derived at runtime via generate_role_uuid() — the same
-    function used in the pipelines — so the FK from user_.role_id always matches.
-    """
-    from utils.uuid_utils import generate_role_uuid
-    import uuid
 
-    config = get_db_config()
-    roles = [
-        (generate_role_uuid("FREEMIUM"),     "FREEMIUM",     True),
-        (generate_role_uuid("PREMIUM"),      "PREMIUM",      True),
-        (generate_role_uuid("PREMIUM_PLUS"), "PREMIUM_PLUS", True),
-        (generate_role_uuid("B2B"),          "B2B",          True),
-        (generate_role_uuid("ADMIN"),        "ADMIN",        True),
-    ]
-    _hg_ns = uuid.UUID('6ba7b819-9dad-11d1-80b4-00c04fd430c8')
-    def _hg_id(label): return str(uuid.uuid5(_hg_ns, label))
-    health_goals = [
-        (_hg_id("LOSE_WEIGHT"),      "LOSE_WEIGHT",      "Reduce body fat"),
-        (_hg_id("GAIN_MUSCLE"),      "GAIN_MUSCLE",      "Increase muscle mass"),
-        (_hg_id("MAINTAIN_WEIGHT"),  "MAINTAIN_WEIGHT",  "Maintain current weight"),
-        (_hg_id("IMPROVE_STAMINA"),  "IMPROVE_STAMINA",  "Improve cardiovascular endurance"),
-    ]
-    try:
-        conn = psycopg2.connect(
-            host=config["host"],
-            port=int(config["port"]),
-            dbname=config["database"],
-            user=config["user"],
-            password=config["password"],
-        )
-        with conn:
-            with conn.cursor() as cur:
-                for role_id, role_type, is_system in roles:
-                    cur.execute(
-                        'INSERT INTO "role" (role_id, role_type, is_system) '
-                        'VALUES (%s, %s::role_type_enum, %s) ON CONFLICT DO NOTHING',
-                        (role_id, role_type, is_system),
-                    )
-                for goal_id, label, description in health_goals:
-                    cur.execute(
-                        'INSERT INTO health_goal (goal_id, label, description) '
-                        'VALUES (%s, %s, %s) ON CONFLICT DO NOTHING',
-                        (goal_id, label, description),
-                    )
-        conn.close()
-        logger.info(f"✅ Reference data seeded: {len(roles)} roles, {len(health_goals)} health goals")
-        return True
-    except Exception as e:
-        logger.error(f"seed_reference_data failed: {e}")
-        return False
+# ── Schema initialisation ────────────────────────────────────────────────────
 
-def init_db_schema(sql_path: str = None) -> bool:
 
+
+def init_db_schema(sql_path: Optional[str] = None) -> bool:
+    """Execute 01_initdb.sql to create all tables and enums."""
     config = get_db_config()
     if sql_path is None:
         sql_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "database", "01_initdb.sql")
@@ -83,11 +41,8 @@ def init_db_schema(sql_path: str = None) -> bool:
         with open(sql_path, "r", encoding="utf-8") as f:
             sql = f.read()
         conn = psycopg2.connect(
-            host=config["host"],
-            port=int(config["port"]),
-            dbname=config["database"],
-            user=config["user"],
-            password=config["password"],
+            host=config["host"], port=int(config["port"]),
+            dbname=config["database"], user=config["user"], password=config["password"],
         )
         schema_exists = False
         with conn:
@@ -136,7 +91,8 @@ def init_db_schema(sql_path: str = None) -> bool:
         logger.error(f"init_db_schema failed: {e}")
         return False
 
-logger = get_logger(__name__)
+
+# ── CSV aggregation (Spark) ──────────────────────────────────────────────────
 
 def save_and_load_table(df: DataFrame, table_name: str, output_dir) -> bool:
     """
