@@ -39,5 +39,6 @@ ENV SPARK_DRIVER_HOST=127.0.0.1
 # Suppress Spark progress bars and verbose output
 ENV PYARROW_IGNORE_TIMEZONE=1
 
-# Default command - runs all pipelines
-CMD ["python3", "main.py", "--pipeline", "all"]
+# Default command — runs all pipelines
+# Override via docker-compose service or: docker run ... python3 main.py exercises
+CMD ["python3", "main.py"]

@@ -2,7 +2,7 @@ from spark.session import get_spark, stop_spark
 from processors.fitness_tracker.transform import transform_fitness_tracker
 from processors.fitness_tracker.config import KAGGLE_DATASET, LOCAL_FILE, LOCAL_ZIP, RAW_DIR, PROCESSED_DIR
 from utils.kaggle.extract import download_kaggle
-from utils.transform import save_to_csv
+from utils.load import save_and_load_table
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -46,8 +46,10 @@ def run_pipeline():
 
         # Step 3: Export to CSV
         logger.info("📦 Export to CSV...")
-        save_to_csv(df_sessions, str(PROCESSED_DIR / "workout_session"))
-        log_pipeline_success(logger, "Fitness Tracker", f"{session_count} sessions exported to CSV")
+        if not save_and_load_table(df_sessions, "workout_session", PROCESSED_DIR):
+            log_pipeline_failure(logger, "Fitness Tracker", "Failed to load workout_session table")
+            return False
+        log_pipeline_success(logger, "Fitness Tracker", f"{session_count} sessions loaded")
         return True
             
     except Exception as e:

@@ -1,15 +1,10 @@
 """
 Common load utilities for all ETL pipelines.
-
-Two main methods:
-  - aggregate_to_csv : merge pipeline DataFrames into one CSV per table, aligned to the DB schema
-  - load_csv_to_postgres : bulk-load a CSV file into PostgreSQL via COPY
 """
 import csv
 import glob
 import shutil
 from pathlib import Path
-from typing import Dict, List
 
 import psycopg2
 from pyspark.sql import DataFrame
@@ -29,19 +24,16 @@ def seed_reference_data() -> bool:
     function used in the pipelines — so the FK from user_.role_id always matches.
     """
     from utils.uuid_utils import generate_role_uuid
+    import uuid
 
     config = get_db_config()
     roles = [
-        (generate_role_uuid("FREEMIUM"),    "FREEMIUM",     True),
-        (generate_role_uuid("PREMIUM"),     "PREMIUM",      True),
-        (generate_role_uuid("PREMIUM_PLUS"),"PREMIUM_PLUS", True),
-        (generate_role_uuid("B2B"),         "B2B",          True),
-        (generate_role_uuid("ADMIN"),       "ADMIN",        True),
+        (generate_role_uuid("FREEMIUM"),     "FREEMIUM",     True),
+        (generate_role_uuid("PREMIUM"),      "PREMIUM",      True),
+        (generate_role_uuid("PREMIUM_PLUS"), "PREMIUM_PLUS", True),
+        (generate_role_uuid("B2B"),          "B2B",          True),
+        (generate_role_uuid("ADMIN"),        "ADMIN",        True),
     ]
-    # Minimal health_goal rows — goal_id is nullable in pipelines but the
-    # table must exist with at least a couple of rows for future FK use.
-    from utils.uuid_utils import NAMESPACE_PROFILE
-    import uuid
     _hg_ns = uuid.UUID('6ba7b819-9dad-11d1-80b4-00c04fd430c8')
     def _hg_id(label): return str(uuid.uuid5(_hg_ns, label))
     health_goals = [
@@ -97,11 +89,48 @@ def init_db_schema(sql_path: str = None) -> bool:
             user=config["user"],
             password=config["password"],
         )
+        schema_exists = False
         with conn:
             with conn.cursor() as cur:
-                cur.execute(sql)
+                # Skip if schema already initialized (e.g. by docker-entrypoint)
+                cur.execute("SELECT to_regclass('public.role')")
+                schema_exists = cur.fetchone()[0] is not None
+                if not schema_exists:
+                    cur.execute(sql)
         conn.close()
-        logger.info(f"✅ Database schema initialized from {sql_path}")
+        if schema_exists:
+            logger.info("✅ Database schema already exists, skipping init")
+        else:
+            logger.info(f"✅ Database schema initialized from {sql_path}")
+
+        # Apply schema migrations idempotently — each in its own transaction so
+        # one failure does not roll back the others.
+        _migrations = [
+            'ALTER TABLE exercise ALTER COLUMN name TYPE VARCHAR(200)',
+            'ALTER TABLE exercise ALTER COLUMN description TYPE VARCHAR(500)',
+            'ALTER TABLE exercise ALTER COLUMN video_url TYPE VARCHAR(200)',
+            'ALTER TABLE exercise ALTER COLUMN equipment_required TYPE VARCHAR(100)',
+            (
+                'ALTER TABLE user_profile ALTER COLUMN height_cm '
+                'TYPE SMALLINT USING ROUND(COALESCE(height_cm, 0))::SMALLINT'
+            ),
+        ]
+        _db = dict(
+            host=config["host"], port=int(config["port"]),
+            dbname=config["database"], user=config["user"],
+            password=config["password"],
+        )
+        for ddl in _migrations:
+            _m = psycopg2.connect(**_db)
+            try:
+                with _m:
+                    with _m.cursor() as _c:
+                        _c.execute(ddl)
+            except Exception as _e:
+                logger.debug(f"Migration skipped ({type(_e).__name__}): {ddl[:60]}")
+            finally:
+                _m.close()
+
         return True
     except Exception as e:
         logger.error(f"init_db_schema failed: {e}")
@@ -109,91 +138,46 @@ def init_db_schema(sql_path: str = None) -> bool:
 
 logger = get_logger(__name__)
 
-def aggregate_to_csv(
-    table_dataframes: Dict[str, List[DataFrame]],
-    output_dir: Path,
-) -> Dict[str, Path]:
+def save_and_load_table(df: DataFrame, table_name: str, output_dir) -> bool:
     """
-    Aggregate one or more pipeline DataFrames per DB table into a single CSV.
+    Align *df* to DB_TABLE_SCHEMAS[table_name], write a single CSV, then
+    COPY it into PostgreSQL.  DataFrame columns must already carry schema
+    names; any schema column absent from the DataFrame is added as NULL.
+    Returns True on success.
     """
-
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    results: Dict[str, Path] = {}
+    schema_cols = DB_TABLE_SCHEMAS.get(table_name)
+    if not schema_cols:
+        logger.warning(f"No DB schema defined for table '{table_name}', skipping")
+        return False
 
-    for table_name, dataframes in table_dataframes.items():
-        if not dataframes:
-            logger.warning(f"No DataFrames provided for table '{table_name}', skipping")
-            continue
+    for col_name in schema_cols:
+        if col_name not in df.columns:
+            df = df.withColumn(col_name, lit(None).cast("string"))
 
-        schema_cols = DB_TABLE_SCHEMAS.get(table_name)
-        if not schema_cols:
-            logger.warning(f"No DB schema defined for table '{table_name}', skipping")
-            continue
+    result_df = df.select(schema_cols)
 
-        try:
-            # --- Union all DataFrames for this table ---
-            # Before union, align columns so every DF has the same set
-            all_cols = set()
-            for df in dataframes:
-                all_cols.update(df.columns)
+    tmp_dir = output_dir / f"_{table_name}_tmp"
+    result_df.coalesce(1).write.mode("overwrite") \
+        .option("header", "true") \
+        .option("nullValue", "") \
+        .option("quote", '"') \
+        .option("escape", '"') \
+        .csv(str(tmp_dir))
 
-            aligned = []
-            for df in dataframes:
-                for col_name in all_cols:
-                    if col_name not in df.columns:
-                        df = df.withColumn(col_name, lit(None).cast("string"))
-                aligned.append(df.select(sorted(all_cols)))
+    part_files = glob.glob(str(tmp_dir / "part-*.csv"))
+    if not part_files:
+        logger.error(f"Spark produced no CSV for table '{table_name}'")
+        shutil.rmtree(str(tmp_dir), ignore_errors=True)
+        return False
 
-            combined_df = aligned[0]
-            for df in aligned[1:]:
-                combined_df = combined_df.union(df)
+    csv_path = output_dir / f"{table_name}.csv"
+    shutil.move(part_files[0], str(csv_path))
+    shutil.rmtree(str(tmp_dir), ignore_errors=True)
 
-            # --- Align to DB schema ---
-            # Add columns that exist in the schema but not in the data
-            for col_name in schema_cols:
-                if col_name not in combined_df.columns:
-                    combined_df = combined_df.withColumn(col_name, lit(None).cast("string"))
-
-            # Select only schema columns, in schema order
-            result_df = combined_df.select(schema_cols)
-
-            # Count and cache before writing so we don't re-trigger the full
-            # Spark DAG a second time just for the log message.
-            result_df = result_df.cache()
-            row_count = result_df.count()
-
-            # --- Write to a single CSV file ---
-            # quote/escape options ensure multiline or comma-containing fields
-            # (e.g. exercise descriptions) are properly quoted so psycopg2 COPY
-            # can parse the file without "extra data after last expected column".
-            tmp_dir = output_dir / f"_{table_name}_tmp"
-            result_df.coalesce(1).write.mode("overwrite") \
-                .option("header", "true") \
-                .option("nullValue", "") \
-                .option("quote", '"') \
-                .option("escape", '"') \
-                .csv(str(tmp_dir))
-
-            # Spark writes part-*.csv inside a directory; move it to the final path
-            part_files = glob.glob(str(tmp_dir / "part-*.csv"))
-            if not part_files:
-                logger.error(f"Spark produced no CSV file for table '{table_name}'")
-                shutil.rmtree(str(tmp_dir), ignore_errors=True)
-                continue
-
-            csv_path = output_dir / f"{table_name}.csv"
-            shutil.move(part_files[0], str(csv_path))
-            shutil.rmtree(str(tmp_dir), ignore_errors=True)
-
-            results[table_name] = csv_path
-            logger.info(f"✅ {table_name}.csv written — {row_count:,} rows, {len(schema_cols)} columns")
-
-        except Exception as e:
-            logger.error(f"aggregate_to_csv failed for table '{table_name}': {e}")
-
-    return results
+    return load_csv_to_postgres(csv_path, table_name)
 
 
 def load_csv_to_postgres(csv_path: Path, table_name: str) -> bool:
@@ -216,6 +200,10 @@ def load_csv_to_postgres(csv_path: Path, table_name: str) -> bool:
 
         with conn:
             with conn.cursor() as cur:
+                # Truncate first so re-runs never hit PK collisions; CASCADE
+                # handles any FK-dependent child rows automatically.
+                cur.execute(f'TRUNCATE "{table_name}" CASCADE')
+
                 with open(csv_path, "r", encoding="utf-8", newline="") as f:
                     # Read header to build column list
                     reader = csv.reader(f)
@@ -243,39 +231,3 @@ def load_csv_to_postgres(csv_path: Path, table_name: str) -> bool:
     except Exception as e:
         logger.error(f"load_csv_to_postgres failed for table '{table_name}': {e}")
         return False
-
-
-def log_etl_execution(spark, status: str, records_loaded: int, error_msg: str = None, SOURCE_NAME: str = ""):
-    """Log ETL pipeline execution metadata to the etl_execution table."""
-    from pyspark.sql.functions import current_timestamp
-
-    log_df = spark.createDataFrame([(
-        SOURCE_NAME,
-        status,
-        records_loaded,
-        error_msg or "",
-        "docker_etl",
-    )], ["source_name", "status", "records_loaded", "error_message", "triggered_by"])
-
-    log_df = log_df \
-        .withColumn("started_at", current_timestamp()) \
-        .withColumn("ended_at", current_timestamp())
-
-    try:
-        from utils.db_utils import get_jdbc_url
-
-        connection_properties = {
-            "user": get_db_config()["user"],
-            "password": get_db_config()["password"],
-            "driver": "org.postgresql.Driver",
-            "stringtype": "unspecified",
-        }
-
-        log_df.write.jdbc(
-            url=get_jdbc_url(),
-            table="etl_execution",
-            mode="append",
-            properties=connection_properties,
-        )
-    except Exception:
-        pass  # Metadata logging must never break the main pipeline

@@ -1,15 +1,32 @@
-"""
-Transform nutrition values data with PySpark to match MCD schema
-Source: nutritional-values-for-common-foods-and-products
-"""
+import traceback
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import (
-    col, trim, lower, when, lit, udf, regexp_replace, round as spark_round
+    col, trim, when, lit, udf, round as spark_round,
+    coalesce, least, substring, regexp_extract
 )
-from pyspark.sql.types import StringType
-import uuid
+from pyspark.sql.types import StringType, DoubleType
 from utils.transform import load_raw_data, ensure_columns
 from utils.uuid_utils import food_uuid_udf
+
+# All numeric columns are DECIMAL(4,1) → max 999.9
+_MAX_DECIMAL_4_1 = 999.9
+
+
+def _tc(c_name: str):
+    """
+    Extract the leading number from a value that may have an embedded unit
+    (e.g. "72g", "9.00 mg") and cast to double.  Returns NULL on empty/null.
+    """
+    extracted = regexp_extract(col(c_name), r'(-?\d+\.?\d*)', 1)
+    return spark_round(
+        when(extracted != lit(""), extracted.cast(DoubleType())).otherwise(lit(None)),
+        2
+    )
+
+
+def _cap(expr):
+    """Clamp value to DECIMAL(4,1) max (999.9)."""
+    return least(expr, lit(_MAX_DECIMAL_4_1))
 
 # Maps raw category strings to category_enum values
 def _map_category(raw_cat):
@@ -32,9 +49,9 @@ def _map_category(raw_cat):
         return "SNACK"
     return "OTHER"
 
-from pyspark.sql.types import StringType as _ST
-from pyspark.sql.functions import udf as _udf
-_map_category_udf = _udf(_map_category, _ST())(df: DataFrame) -> DataFrame:
+_map_category_udf = udf(_map_category, StringType())
+
+def map_to_mcd_schema(df: DataFrame) -> DataFrame:
     """
     Map source columns to MCD INGREDIENTS schema
 
@@ -63,7 +80,7 @@ _map_category_udf = _udf(_map_category, _ST())(df: DataFrame) -> DataFrame:
         "protein_g", "protein", "proteins",
         "carbohydrate_g", "carbs_g", "carbohydrates", "carbs", "total_carbohydrate",
         "fat_g", "total_fat", "fat", "lipid",
-        "food_category", "food_group", "group",
+        "category", "food_category", "food_group", "group",
         "fiber_g", "dietary_fiber", "fiber", "fibre",
         "sugar_g", "sugars", "sugar", "total_sugars",
         "sodium_mg", "sodium", "salt",
@@ -71,40 +88,29 @@ _map_category_udf = _udf(_map_category, _ST())(df: DataFrame) -> DataFrame:
     ])
 
     df_mapped = df_with_name.select(
-        food_uuid_udf(col("name"), lit(None)).alias("ingredients_id"),
-        col("name"),
+        food_uuid_udf(substring(col("name"), 1, 50), lit(None)).alias("ingredients_id"),
+        substring(col("name"), 1, 50).alias("name"),
 
         # Calories
-        when(col("calories").isNotNull(), spark_round(col("calories"), 2))
-        .when(col("energy_kcal").isNotNull(), spark_round(col("energy_kcal"), 2))
-        .when(col("energy").isNotNull(), spark_round(col("energy"), 2))
-        .when(col("calorie").isNotNull(), spark_round(col("calorie"), 2))
-        .otherwise(lit(0.0))
-        .alias("calories_g"),
+        _cap(coalesce(
+            _tc("calories"), _tc("energy_kcal"), _tc("energy"), _tc("calorie"), lit(0.0)
+        )).alias("calories_g"),
 
         # Protein
-        when(col("protein_g").isNotNull(), spark_round(col("protein_g"), 2))
-        .when(col("protein").isNotNull(), spark_round(col("protein"), 2))
-        .when(col("proteins").isNotNull(), spark_round(col("proteins"), 2))
-        .otherwise(lit(0.0))
-        .alias("protein_g"),
+        _cap(coalesce(
+            _tc("protein_g"), _tc("protein"), _tc("proteins"), lit(0.0)
+        )).alias("protein_g"),
 
         # Carbohydrates
-        when(col("carbohydrate_g").isNotNull(), spark_round(col("carbohydrate_g"), 2))
-        .when(col("carbs_g").isNotNull(), spark_round(col("carbs_g"), 2))
-        .when(col("carbohydrates").isNotNull(), spark_round(col("carbohydrates"), 2))
-        .when(col("carbs").isNotNull(), spark_round(col("carbs"), 2))
-        .when(col("total_carbohydrate").isNotNull(), spark_round(col("total_carbohydrate"), 2))
-        .otherwise(lit(0.0))
-        .alias("carbs_g"),
+        _cap(coalesce(
+            _tc("carbohydrate_g"), _tc("carbs_g"), _tc("carbohydrates"),
+            _tc("carbs"), _tc("total_carbohydrate"), lit(0.0)
+        )).alias("carbs_g"),
 
         # Fat
-        when(col("fat_g").isNotNull(), spark_round(col("fat_g"), 2))
-        .when(col("total_fat").isNotNull(), spark_round(col("total_fat"), 2))
-        .when(col("fat").isNotNull(), spark_round(col("fat"), 2))
-        .when(col("lipid").isNotNull(), spark_round(col("lipid"), 2))
-        .otherwise(lit(0.0))
-        .alias("fat_g"),
+        _cap(coalesce(
+            _tc("fat_g"), _tc("total_fat"), _tc("fat"), _tc("lipid"), lit(0.0)
+        )).alias("fat_g"),
 
         # nutriscore: NULL (nutriscore_enum: A-E)
         lit(None).cast(StringType()).alias("nutriscore"),
@@ -119,33 +125,27 @@ _map_category_udf = _udf(_map_category, _ST())(df: DataFrame) -> DataFrame:
         ).alias("category"),
 
         # Fiber
-        when(col("fiber_g").isNotNull(), spark_round(col("fiber_g"), 2))
-        .when(col("dietary_fiber").isNotNull(), spark_round(col("dietary_fiber"), 2))
-        .when(col("fiber").isNotNull(), spark_round(col("fiber"), 2))
-        .when(col("fibre").isNotNull(), spark_round(col("fibre"), 2))
-        .otherwise(lit(0.0))
-        .alias("fiber_g"),
+        _cap(coalesce(
+            _tc("fiber_g"), _tc("dietary_fiber"), _tc("fiber"), _tc("fibre"), lit(0.0)
+        )).alias("fiber_g"),
 
         # Sugar
-        when(col("sugar_g").isNotNull(), spark_round(col("sugar_g"), 2))
-        .when(col("sugars").isNotNull(), spark_round(col("sugars"), 2))
-        .when(col("sugar").isNotNull(), spark_round(col("sugar"), 2))
-        .when(col("total_sugars").isNotNull(), spark_round(col("total_sugars"), 2))
-        .otherwise(lit(0.0))
-        .alias("sugar_g"),
+        _cap(coalesce(
+            _tc("sugar_g"), _tc("sugars"), _tc("sugar"), _tc("total_sugars"), lit(0.0)
+        )).alias("sugar_g"),
 
-        # Sodium
-        when(col("sodium_mg").isNotNull(), spark_round(col("sodium_mg"), 2))
-        .when(col("sodium").isNotNull(), spark_round(col("sodium"), 2))
-        .when(col("salt").isNotNull(), spark_round(col("salt") * 400, 2))
-        .otherwise(lit(0.0))
-        .alias("sodium_mg"),
+        # Sodium — convert salt (g) → sodium (mg) by × 400 if needed
+        _cap(coalesce(
+            _tc("sodium_mg"), _tc("sodium"),
+            when(_tc("salt").isNotNull(),
+                 spark_round(_tc("salt") * lit(400.0), 2)),
+            lit(0.0)
+        )).alias("sodium_mg"),
 
         # Cholesterol
-        when(col("cholesterol_mg").isNotNull(), spark_round(col("cholesterol_mg"), 2))
-        .when(col("cholesterol").isNotNull(), spark_round(col("cholesterol"), 2))
-        .otherwise(lit(0.0))
-        .alias("cholesterol_mg")
+        _cap(coalesce(
+            _tc("cholesterol_mg"), _tc("cholesterol"), lit(0.0)
+        )).alias("cholesterol_mg"),
     )
 
     return df_mapped
@@ -158,9 +158,6 @@ def clean_data(df: DataFrame) -> DataFrame:
         (col("name") != "Unknown")
     )
     df = df.dropDuplicates(["name"])
-    df = df.filter(
-        (col("calories_g") >= 0) & (col("calories_g") <= 900)
-    )
     return df
 
 def transform_nutrition_values(spark, csv_path: str) -> DataFrame:
@@ -190,6 +187,8 @@ def transform_nutrition_values(spark, csv_path: str) -> DataFrame:
         return df_clean
         
     except Exception as e:
+        from utils.logger import get_logger as _gl
+        _gl("processors.nutrition_values.pipeline").error(f"transform_nutrition_values failed: {e}\n{traceback.format_exc()}")
         print(f"❌ FAILED: Transformation error - {e}")
         return None
 
@@ -213,7 +212,7 @@ if __name__ == "__main__":
             
             # Show stats
             print("\n📈 Statistics:")
-            df_transformed.select("calories_100g", "protein_100g", "carbs_100g", "fat_100g").describe().show()
+            df_transformed.select("calories_g", "protein_g", "carbs_g", "fat_g").describe().show()
     
     finally:
         stop_spark()

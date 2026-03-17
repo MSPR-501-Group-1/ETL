@@ -81,12 +81,12 @@ CREATE TABLE recipe(
 
 CREATE TABLE exercise(
    exercise_id VARCHAR(50),
-   name VARCHAR(50),
+   name VARCHAR(200),
    body_part_target body_part_enum,
-   video_url VARCHAR(50),
-   description VARCHAR(50),
+   video_url VARCHAR(200),
+   description VARCHAR(500),
    difficulty_level exercise_difficulty_enum,
-   equipment_required VARCHAR(50),
+   equipment_required VARCHAR(100),
    category exercise_category_enum,
    PRIMARY KEY(exercise_id)
 );
@@ -214,7 +214,7 @@ CREATE TABLE user_(
 
 CREATE TABLE user_profile(
    user_id VARCHAR(50),
-   height_cm DECIMAL(3,2),
+   height_cm SMALLINT,
    current_weight_kg DECIMAL(5,2),
    activity_level_ref VARCHAR(50),
    allergies allergies_enum,

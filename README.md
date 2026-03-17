@@ -4,7 +4,7 @@ Pipeline ETL avec PySpark pour le projet HealthAI Coach.
 
 ## ⚠️ Docker OBLIGATOIRE
 
-PySpark 3.5.0 nécessite Java 17 (incompatible avec Java 25+). Docker embarque Java 17 LTS automatiquement.
+PySpark nécessite Java 17 (incompatible avec Java 25+). Docker embarque Java 17 LTS automatiquement.
 
 ## 🚀 Démarrage rapide
 
@@ -23,11 +23,13 @@ copy kaggle.json $HOME\.kaggle\kaggle.json
 ### Premier lancement
 
 ```bash
-# Tout construire et lancer (exécute --pipeline all)
-docker-compose up --build
+# Construire les images
+docker-compose build
+
+# Lancer tous les pipelines
+docker-compose run --rm etl
 
 # Vérifier
-.\scripts\verify.ps1
 docker exec -it healthai_postgres psql -U healthai -d healthai_db -c "SELECT COUNT(*) FROM exercise;"
 ```
 
@@ -45,33 +47,30 @@ docker exec -it healthai_postgres psql -U healthai -d healthai_db -c "SELECT COU
 ## 🎮 Commandes pipelines
 
 ```bash
-# Pipelines individuels
-docker-compose run --rm etl python main.py --pipeline exercises
-docker-compose run --rm etl python main.py --pipeline nutrition
-docker-compose run --rm etl python main.py --pipeline nutrition-values
-docker-compose run --rm etl python main.py --pipeline gym-members
-docker-compose run --rm etl python main.py --pipeline fitness-tracker
-docker-compose run --rm etl python main.py --pipeline body-performance
+# Tous les pipelines (ordre dépendances FK)
+docker-compose run --rm etl
 
-# Pipelines groupés
-docker-compose run --rm etl python main.py --pipeline nutrition-all  # nutrition + nutrition-values
-docker-compose run --rm etl python main.py --pipeline workouts       # fitness-tracker + body-performance
-docker-compose run --rm etl python main.py --pipeline all            # Tous les 6 pipelines
+# Pipelines individuels (services dédiés)
+docker-compose run --rm etl-exercises
+docker-compose run --rm etl-nutrition
+docker-compose run --rm etl-nutrition-values
+docker-compose run --rm etl-gym-members
+docker-compose run --rm etl-fitness-tracker
+docker-compose run --rm etl-body-performance
+
+# Plusieurs pipelines en une commande (service générique)
+docker-compose run --rm etl python3 main.py nutrition nutrition_values
+docker-compose run --rm etl python3 main.py exercises gym_members
 ```
 
 ### ⚠️ Ordre d'exécution recommandé (dépendances FK)
 
-1. `exercises` → requis par body-performance (session_detail)
-2. `gym-members` → requis par fitness-tracker et body-performance (user_id)
-3. `nutrition-all` → indépendant
-4. `workouts` → nécessite exercises + gym-members
+1. `exercises` → requis par body_performance (session_detail)
+2. `gym_members` → requis par fitness_tracker et body_performance (user_id)
+3. `nutrition` / `nutrition_values` → indépendants
+4. `fitness_tracker` / `body_performance` → nécessitent exercises + gym_members
 
-**Best practice**: `docker-compose run --rm etl python main.py --pipeline all`
-
-### Modes d'écriture PostgreSQL
-
-- **nutrition**: `OVERWRITE` (remplace `food`)
-- Tous les autres: `APPEND`
+**Best practice**: `docker-compose run --rm etl` (lance les 6 dans le bon ordre)
 
 ## 📁 Structure du projet
 
@@ -122,13 +121,13 @@ SELECT name, difficulty_level FROM exercise LIMIT 5;
 ## 🐛 Troubleshooting
 
 ```bash
-# Logs
-docker logs healthai_etl
+# Logs en direct
 docker-compose logs -f
 
-# Reset complet
+# Reset complet (supprime les volumes PostgreSQL)
 docker-compose down -v
-docker-compose up --build
+docker-compose build
+docker-compose run --rm etl
 
 # Port 5432 occupé
 netstat -ano | findstr :5432
@@ -155,12 +154,14 @@ docker run -d --name postgres_local `
 docker exec -i postgres_local psql -U healthai -d healthai_db < database/init.sql
 
 # 4. Exécuter
-python main.py --pipeline exercises
+python main.py exercises
+python main.py nutrition nutrition_values
+python main.py  # tous les pipelines
 ```
 
 ## 📈 Architecture technique
 
-- **Stack**: PySpark 3.5.0 + PostgreSQL 15 + Docker
+- **Stack**: PySpark 4.1.1 + PostgreSQL 15 + Docker
 - **Pattern ETL**: Extract (GitHub/Kaggle) → Transform (PySpark DataFrame) → Load (JDBC + Parquet + CSV)
 - **Dépendances**: Java 17, Python 3.x, pandas, psycopg2-binary, kaggle CLI
 - **Schéma MCD**: 12 tables relationnelles avec contraintes FK/PK (UUID)
