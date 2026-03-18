@@ -15,6 +15,7 @@ x-etl-base: &etl-base
   volumes:
     - ./data:/app/data
     - ./logs:/app/logs
+    - ./reports:/app/reports
   networks:
     - healthai_network
 

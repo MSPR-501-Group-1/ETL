@@ -3,6 +3,7 @@ from processors.nutrition.transform import transform_nutrition
 from processors.nutrition.config import LOCAL_FILE, LOCAL_ZIP, RAW_DIR, KAGGLE_DATASET, PROCESSED_DIR
 from utils.kaggle.extract import download_kaggle
 from utils.load import save_and_load_table
+from utils.profiling import profile_dataframe
 from utils.logger import get_logger, log_pipeline_start, log_pipeline_success, log_pipeline_failure
 import traceback
 

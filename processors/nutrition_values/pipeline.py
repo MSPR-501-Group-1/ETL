@@ -7,6 +7,7 @@ from processors.nutrition_values.transform import transform_nutrition_values
 from processors.nutrition_values.config import LOCAL_FILE, LOCAL_ZIP, RAW_DIR, KAGGLE_DATASET, PROCESSED_DIR
 from utils.kaggle.extract import download_kaggle
 from utils.load import save_and_load_table
+from utils.profiling import profile_dataframe
 from utils.logger import get_logger, log_pipeline_start, log_pipeline_success, log_pipeline_failure
 import traceback
 
@@ -50,7 +51,10 @@ def run_pipeline():
             return False
 
         logger.info(f"✅ Transformed {count} foods")
-        
+
+        # Optional data profiling (set ENABLE_PROFILING=true to activate)
+        profile_dataframe(df_transformed, "nutrition_values")
+
         # Step 3: Export to CSV
         logger.info("📦 Export to CSV...")
         if not save_and_load_table(df_transformed, "ingredients", PROCESSED_DIR):

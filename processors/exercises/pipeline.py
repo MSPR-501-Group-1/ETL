@@ -3,6 +3,7 @@ from processors.exercises.transform import transform_exercises
 from processors.exercises.config import LOCAL_FILE, URLS, PROCESSED_DIR
 from utils.github.extract import download_github
 from utils.load import save_and_load_table
+from utils.profiling import profile_dataframe
 
 from utils.logger import get_logger, log_pipeline_start, log_pipeline_success, log_pipeline_failure
 import traceback
@@ -35,7 +36,10 @@ def run_pipeline():
         if count == 0:
             log_pipeline_failure(logger, "Exercises", "Transformation produced no data")
             return False
-        
+
+        # Optional data profiling (set ENABLE_PROFILING=true to activate)
+        profile_dataframe(df_transformed, "exercises")
+
         logger.info("📦 Save and load to PostgreSQL...")
         if not save_and_load_table(df_transformed, "exercise", PROCESSED_DIR):
             log_pipeline_failure(logger, "Exercises", "Failed to load exercise table")
