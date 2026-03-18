@@ -18,6 +18,7 @@ from pyspark.sql import DataFrame
 from pyspark.sql.functions import lit
 
 from utils.db_utils import DB_TABLE_SCHEMAS, get_db_config
+from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
