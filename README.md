@@ -57,13 +57,12 @@ docker-compose run --rm etl
 # Pipelines individuels (services dédiés)
 docker-compose run --rm etl-exercises
 docker-compose run --rm etl-nutrition
-docker-compose run --rm etl-nutrition-values
 docker-compose run --rm etl-gym-members
 docker-compose run --rm etl-fitness-tracker
 docker-compose run --rm etl-body-performance
 
 # Plusieurs pipelines en une commande (service générique)
-docker-compose run --rm etl python3 main.py nutrition nutrition_values
+docker-compose run --rm etl python3 main.py nutrition
 docker-compose run --rm etl python3 main.py exercises gym_members
 ```
 
@@ -71,7 +70,7 @@ docker-compose run --rm etl python3 main.py exercises gym_members
 
 1. `exercises` → requis par body_performance (session_detail)
 2. `gym_members` → requis par fitness_tracker et body_performance (user_id)
-3. `nutrition` / `nutrition_values` → indépendants
+3. `nutrition` → agrège les 2 sources nutritionnelles
 4. `fitness_tracker` / `body_performance` → nécessitent exercises + gym_members
 
 **Best practice**: `docker-compose run --rm etl` (lance les 6 dans le bon ordre)
@@ -80,7 +79,7 @@ docker-compose run --rm etl python3 main.py exercises gym_members
 
 ```
 ETL2/
-├── processors/          # 6 pipelines ETL (exercises, nutrition x2, gym_members, fitness_tracker, body_performance)
+├── processors/          # 5 pipelines ETL (exercises, nutrition, gym_members, fitness_tracker, body_performance)
 │   └── {pipeline}/     # Chaque pipeline: extract.py, transform.py, load.py, pipeline.py, config.py
 ├── spark/              # Session PySpark singleton
 ├── data/
@@ -172,7 +171,7 @@ docker exec -i postgres_local psql -U healthai -d healthai_db < database/init.sq
 
 # 4. Exécuter
 python main.py exercises
-python main.py nutrition nutrition_values
+python main.py nutrition
 python main.py  # tous les pipelines
 ```
 

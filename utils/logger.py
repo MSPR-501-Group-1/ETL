@@ -2,7 +2,6 @@
 Centralized logging configuration for ETL pipelines
 """
 import logging
-from pyspark.logger import PySparkLogger
 import sys
 from pathlib import Path
 from datetime import datetime
@@ -20,9 +19,9 @@ def get_logger(name: str, log_file: str = None) -> logging.Logger:
         logger.setLevel(logging.DEBUG)
         logger.propagate = False  # Prevent duplicate logs
         
-        # Console handler — only warnings and errors to keep output clean
+        # Console handler
         console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setLevel(logging.WARNING)
+        console_handler.setLevel(logging.INFO)
         console_format = logging.Formatter('%(levelname)s - %(name)s - %(message)s')
         console_handler.setFormatter(console_format)
         
