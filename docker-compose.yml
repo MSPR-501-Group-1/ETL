@@ -41,6 +41,7 @@ services:
       start_period: 30s
 
   # ETL services 
+  # ETL services 
   # Run all pipelines:       docker-compose run --rm etl
   # Run a single pipeline:   docker-compose run --rm etl-exercises
   etl:
