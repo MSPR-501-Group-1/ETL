@@ -4,9 +4,6 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from processors.exercises.pipeline       import run_pipeline as run_exercises_pipeline
-from processors.body_performance.pipeline import run_pipeline as run_body_performance_pipeline
-from processors.gym_members.pipeline     import run_pipeline as run_gym_members_pipeline
-from processors.fitness_tracker.pipeline import run_pipeline as run_fitness_tracker_pipeline
 from processors.nutrition.pipeline       import run_pipeline as run_nutrition_pipeline
 from processors.nutrition_values.pipeline import run_pipeline as run_nutrition_values_pipeline
 from utils.load import init_db_schema, seed_reference_data
@@ -14,31 +11,10 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-
-# ── Individual pipeline runners ───────────────────────────────────────────────
-
 def run_exercises() -> bool:
     """Extract, transform and load the exercises dataset → `exercise` table."""
     logger.info("🏋️  Running Exercises pipeline...")
     return run_exercises_pipeline()
-
-
-def run_body_performance() -> bool:
-    """Extract, transform and load the body-performance dataset → user tables."""
-    logger.info("💪 Running Body Performance pipeline...")
-    return run_body_performance_pipeline()
-
-
-def run_gym_members() -> bool:
-    """Extract, transform and load the gym-members dataset → user tables."""
-    logger.info("🏅 Running Gym Members pipeline...")
-    return run_gym_members_pipeline()
-
-
-def run_fitness_tracker() -> bool:
-    """Extract, transform and load the fitness-tracker dataset → activity tables."""
-    logger.info("📊 Running Fitness Tracker pipeline...")
-    return run_fitness_tracker_pipeline()
 
 
 def run_nutrition() -> bool:
@@ -53,14 +29,8 @@ def run_nutrition_values() -> bool:
     return run_nutrition_values_pipeline()
 
 
-# ── Full orchestrated run ─────────────────────────────────────────────────────
-
-# Ordered by FK dependency: exercises first, user data second, food data last.
 _PIPELINES = [
     ("exercises",         run_exercises),
-    ("body_performance",  run_body_performance),
-    ("gym_members",       run_gym_members),
-    ("fitness_tracker",   run_fitness_tracker),
     ("nutrition",         run_nutrition),
     ("nutrition_values",  run_nutrition_values),
 ]
@@ -133,9 +103,6 @@ def run_selected(names: list[str]) -> bool:
 
     logger.info("✅ Selected pipeline(s) completed successfully")
     return True
-
-
-# ── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
     available = [name for name, _ in _PIPELINES]

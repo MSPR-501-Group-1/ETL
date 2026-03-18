@@ -1,3 +1,0 @@
-"""
-Gym Members ETL Processor
-"""
