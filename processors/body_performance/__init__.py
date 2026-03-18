@@ -1,3 +1,0 @@
-"""
-Body Performance ETL Processor
-"""

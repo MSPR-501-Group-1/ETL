@@ -19,7 +19,6 @@ x-etl-base: &etl-base
     - healthai_network
 
 services:
-  # ── PostgreSQL ────────────────────────────────────────────────────────────
   postgres:
     image: postgres:15-alpine
     container_name: healthai_postgres
@@ -41,7 +40,8 @@ services:
       retries: 15
       start_period: 30s
 
-  # ── ETL services ─────────────────────────────────────────────────────────
+  # ETL services 
+  # ETL services 
   # Run all pipelines:       docker-compose run --rm etl
   # Run a single pipeline:   docker-compose run --rm etl-exercises
   etl:
@@ -53,21 +53,6 @@ services:
     <<: *etl-base
     container_name: healthai_etl_exercises
     command: python3 main.py exercises
-
-  etl-body-performance:
-    <<: *etl-base
-    container_name: healthai_etl_body_performance
-    command: python3 main.py body_performance
-
-  etl-gym-members:
-    <<: *etl-base
-    container_name: healthai_etl_gym_members
-    command: python3 main.py gym_members
-
-  etl-fitness-tracker:
-    <<: *etl-base
-    container_name: healthai_etl_fitness_tracker
-    command: python3 main.py fitness_tracker
 
   etl-nutrition:
     <<: *etl-base

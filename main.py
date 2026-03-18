@@ -3,78 +3,37 @@ import argparse
 import warnings
 warnings.filterwarnings('ignore')
 
-from processors.exercises.pipeline       import run_pipeline as run_exercises_pipeline
-from processors.body_performance.pipeline import run_pipeline as run_body_performance_pipeline
-from processors.gym_members.pipeline     import run_pipeline as run_gym_members_pipeline
-from processors.fitness_tracker.pipeline import run_pipeline as run_fitness_tracker_pipeline
-from processors.nutrition.pipeline       import run_pipeline as run_nutrition_pipeline
-from processors.nutrition_values.pipeline import run_pipeline as run_nutrition_values_pipeline
+from processors.exercises.pipeline  import run_pipeline as run_exercises_pipeline
+from processors.nutrition.pipeline  import run_pipeline as run_nutrition_pipeline
+from spark.session import stop_spark
 from utils.load import init_db_schema
-from utils.seed import seed_reference_data
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-
-# ── Individual pipeline runners ───────────────────────────────────────────────
-
 def run_exercises() -> bool:
     """Extract, transform and load the exercises dataset → `exercise` table."""
     logger.info("🏋️  Running Exercises pipeline...")
-    return run_exercises_pipeline()
-
-
-def run_body_performance() -> bool:
-    """Extract, transform and load the body-performance dataset → user tables."""
-    logger.info("💪 Running Body Performance pipeline...")
-    return run_body_performance_pipeline()
-
-
-def run_gym_members() -> bool:
-    """Extract, transform and load the gym-members dataset → user tables."""
-    logger.info("🏅 Running Gym Members pipeline...")
-    return run_gym_members_pipeline()
-
-
-def run_fitness_tracker() -> bool:
-    """Extract, transform and load the fitness-tracker dataset → activity tables."""
-    logger.info("📊 Running Fitness Tracker pipeline...")
-    return run_fitness_tracker_pipeline()
+    return run_exercises_pipeline(reuse_spark=True)
 
 
 def run_nutrition() -> bool:
     """Extract, transform and load the nutrition dataset → ingredient tables."""
     logger.info("🍎 Running Nutrition pipeline...")
-    return run_nutrition_pipeline()
+    return run_nutrition_pipeline(reuse_spark=True)
 
 
-def run_nutrition_values() -> bool:
-    """Extract, transform and load the nutrition-values dataset → ingredient tables."""
-    logger.info("🥗 Running Nutrition Values pipeline...")
-    return run_nutrition_values_pipeline()
-
-
-# ── Full orchestrated run ─────────────────────────────────────────────────────
-
-# Ordered by FK dependency: exercises first, user data second, food data last.
 _PIPELINES = [
-    ("exercises",         run_exercises),
-    ("body_performance",  run_body_performance),
-    ("gym_members",       run_gym_members),
-    ("fitness_tracker",   run_fitness_tracker),
-    ("nutrition",         run_nutrition),
-    ("nutrition_values",  run_nutrition_values),
+    ("exercises", run_exercises),
+    ("nutrition",  run_nutrition),
 ]
 
 
 def _init_db() -> bool:
-    """Initialize schema and seed reference data. Returns False on failure."""
-    logger.info("🗄️  Initializing database schema and seeding reference data...")
+    """Initialize database schema. Returns False on failure."""
+    logger.info("🗄️  Initializing database schema...")
     if not init_db_schema():
         logger.error("❌ Failed to initialize database schema — aborting")
-        return False
-    if not seed_reference_data():
-        logger.error("❌ Failed to seed reference data — aborting")
         return False
     logger.info("✅ Database ready")
     return True
@@ -135,9 +94,6 @@ def run_selected(names: list[str]) -> bool:
     logger.info("✅ Selected pipeline(s) completed successfully")
     return True
 
-
-# ── Entry point ───────────────────────────────────────────────────────────────
-
 def main():
     available = [name for name, _ in _PIPELINES]
 
@@ -155,10 +111,13 @@ def main():
     )
     args = parser.parse_args()
 
-    if args.pipelines:
-        success = run_selected(args.pipelines)
-    else:
-        success = run_all()
+    try:
+        if args.pipelines:
+            success = run_selected(args.pipelines)
+        else:
+            success = run_all()
+    finally:
+        stop_spark()
 
     sys.exit(0 if success else 1)
 

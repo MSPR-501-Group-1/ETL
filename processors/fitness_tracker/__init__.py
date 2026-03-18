@@ -1,3 +1,0 @@
-"""
-Fitness Tracker ETL Processor
-"""
