@@ -58,17 +58,25 @@ def transform_exercises(spark: SparkSession, json_path: str) -> DataFrame:
     return (
         df.select(
             exercise_uuid_udf(trim(col("name"))).alias("exercise_id"),
-            trim(col("name")).alias("name"),
+            substring(trim(col("name")), 1, 200).alias("name"),
             body_part.alias("body_part_target"),
-            when(col("images").isNotNull(), element_at(col("images"), 1))
-            .otherwise(lit(None)).alias("video_url"),
+            substring(
+                when(col("images").isNotNull(), element_at(col("images"), 1))
+                .otherwise(lit(None)),
+                1,
+                200,
+            ).alias("video_url"),
             substring(
                 when(col("instructions").isNotNull(), concat_ws(" ", col("instructions")))
                 .otherwise(lit(None)), 1, 500
             ).alias("description"),
             difficulty.alias("difficulty_level"),
-            when(col("equipment").isNotNull(), trim(col("equipment")))
-            .otherwise(lit("body only")).alias("equipment_required"),
+            substring(
+                when(col("equipment").isNotNull(), trim(col("equipment")))
+                .otherwise(lit("body only")),
+                1,
+                100,
+            ).alias("equipment_required"),
             category.alias("category"),
         )
         .dropDuplicates(["name"])

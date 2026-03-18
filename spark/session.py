@@ -3,7 +3,6 @@ Spark session manager - Singleton pattern
 Compatible with Java 21+
 """
 from pyspark.sql import SparkSession
-from pyspark.conf import SparkConf
 
 class SparkSessionManager:
     """Singleton to manage Spark session"""

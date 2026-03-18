@@ -3,10 +3,10 @@ import argparse
 import warnings
 warnings.filterwarnings('ignore')
 
-from processors.exercises.pipeline       import run_pipeline as run_exercises_pipeline
-from processors.nutrition.pipeline       import run_pipeline as run_nutrition_pipeline
-from processors.nutrition_values.pipeline import run_pipeline as run_nutrition_values_pipeline
-from utils.load import init_db_schema, seed_reference_data
+from processors.exercises.pipeline  import run_pipeline as run_exercises_pipeline
+from processors.nutrition.pipeline  import run_pipeline as run_nutrition_pipeline
+from spark.session import stop_spark
+from utils.load import init_db_schema
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -14,36 +14,26 @@ logger = get_logger(__name__)
 def run_exercises() -> bool:
     """Extract, transform and load the exercises dataset → `exercise` table."""
     logger.info("🏋️  Running Exercises pipeline...")
-    return run_exercises_pipeline()
+    return run_exercises_pipeline(reuse_spark=True)
 
 
 def run_nutrition() -> bool:
     """Extract, transform and load the nutrition dataset → ingredient tables."""
     logger.info("🍎 Running Nutrition pipeline...")
-    return run_nutrition_pipeline()
-
-
-def run_nutrition_values() -> bool:
-    """Extract, transform and load the nutrition-values dataset → ingredient tables."""
-    logger.info("🥗 Running Nutrition Values pipeline...")
-    return run_nutrition_values_pipeline()
+    return run_nutrition_pipeline(reuse_spark=True)
 
 
 _PIPELINES = [
-    ("exercises",         run_exercises),
-    ("nutrition",         run_nutrition),
-    ("nutrition_values",  run_nutrition_values),
+    ("exercises", run_exercises),
+    ("nutrition",  run_nutrition),
 ]
 
 
 def _init_db() -> bool:
-    """Initialize schema and seed reference data. Returns False on failure."""
-    logger.info("🗄️  Initializing database schema and seeding reference data...")
+    """Initialize database schema. Returns False on failure."""
+    logger.info("🗄️  Initializing database schema...")
     if not init_db_schema():
         logger.error("❌ Failed to initialize database schema — aborting")
-        return False
-    if not seed_reference_data():
-        logger.error("❌ Failed to seed reference data — aborting")
         return False
     logger.info("✅ Database ready")
     return True
@@ -121,10 +111,13 @@ def main():
     )
     args = parser.parse_args()
 
-    if args.pipelines:
-        success = run_selected(args.pipelines)
-    else:
-        success = run_all()
+    try:
+        if args.pipelines:
+            success = run_selected(args.pipelines)
+        else:
+            success = run_all()
+    finally:
+        stop_spark()
 
     sys.exit(0 if success else 1)
 
