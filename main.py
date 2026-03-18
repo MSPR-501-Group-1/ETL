@@ -9,7 +9,8 @@ from processors.gym_members.pipeline     import run_pipeline as run_gym_members_
 from processors.fitness_tracker.pipeline import run_pipeline as run_fitness_tracker_pipeline
 from processors.nutrition.pipeline       import run_pipeline as run_nutrition_pipeline
 from processors.nutrition_values.pipeline import run_pipeline as run_nutrition_values_pipeline
-from utils.load import init_db_schema, seed_reference_data
+from utils.load import init_db_schema
+from utils.seed import seed_reference_data
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
