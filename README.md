@@ -31,6 +31,10 @@ docker-compose run --rm etl
 
 # Vérifier
 docker exec -it healthai_postgres psql -U healthai -d healthai_db -c "SELECT COUNT(*) FROM exercise;"
+
+#lancement pgAdmin
+docker-compose up pgadmin
+
 ```
 
 ## 📊 Sources de données (6/6 implémentées)
@@ -94,6 +98,19 @@ ETL2/
 ## 🗄️ Base de données PostgreSQL
 
 **Connexion**: `localhost:5432` | User: `healthai` | Pass: `password` | DB: `healthai_db`
+
+## Connexion pgAdmin
+
+User: `admin@admin.com`
+password: `admin`
+
+Name : HealthAI (n'importe quel nom passe)
+Onglet Connection :
+Host : postgres
+Port : 5432
+Maintenance database : healthai_db
+Username : healthai
+Password : password
 
 **12 Tables créées**:
 - `exercise` (873 exercices) | `food` (~9000 aliments)
