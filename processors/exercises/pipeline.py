@@ -2,7 +2,7 @@ from spark.session import get_spark, stop_spark
 from processors.exercises.transform import transform_exercises
 from processors.exercises.config import LOCAL_FILE, URLS, PROCESSED_DIR
 from utils.github.extract import download_github
-from utils.load import save_and_load_table
+from utils.load import save_table_csv
 
 from utils.logger import get_logger, log_dataframe_info, log_pipeline_start, log_pipeline_success, log_pipeline_failure
 import traceback
@@ -36,13 +36,14 @@ def run_pipeline(reuse_spark: bool = False):
             log_pipeline_failure(logger, "Exercises", "Transformation produced no data")
             return False
         
-        logger.info("📦 Save and load to PostgreSQL...")
-        if not save_and_load_table(df_transformed, "exercise", PROCESSED_DIR):
+        logger.info("📦 Saving transformed CSV...")
+        csv_path = save_table_csv(df_transformed, "exercise", PROCESSED_DIR)
+        if csv_path is None:
             df_transformed.unpersist()
-            log_pipeline_failure(logger, "Exercises", "Failed to load exercise table")
+            log_pipeline_failure(logger, "Exercises", "Failed to save transformed CSV")
             return False
         df_transformed.unpersist()
-        log_pipeline_success(logger, "Exercises", f"{count} exercises loaded")
+        log_pipeline_success(logger, "Exercises", f"{count} exercises transformed ({csv_path.name})")
         return True
 
     except Exception as e:

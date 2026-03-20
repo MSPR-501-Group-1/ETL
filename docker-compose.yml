@@ -34,20 +34,18 @@ services:
     networks:
       - healthai_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U healthai -d healthai_db && psql -U healthai -d healthai_db -c 'SELECT 1 FROM role LIMIT 1' > /dev/null 2>&1"]
+      test: ["CMD-SHELL", "pg_isready -U healthai -d healthai_db && psql -U healthai -d healthai_db -c 'SELECT 1' > /dev/null 2>&1"]
       interval: 10s
       timeout: 5s
       retries: 15
       start_period: 30s
 
-  # ETL services 
-  # ETL services 
-  # Run all pipelines:       docker-compose run --rm etl
-  # Run a single pipeline:   docker-compose run --rm etl-exercises
-  etl:
+  api:
     <<: *etl-base
-    container_name: healthai_etl
-    command: python3 main.py
+    container_name: healthai_api
+    command: uvicorn api.app:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
 
   etl-exercises:
     <<: *etl-base
@@ -58,11 +56,6 @@ services:
     <<: *etl-base
     container_name: healthai_etl_nutrition
     command: python3 main.py nutrition
-
-  etl-nutrition-values:
-    <<: *etl-base
-    container_name: healthai_etl_nutrition_values
-    command: python3 main.py nutrition_values
 
   # ── pgAdmin ───────────────────────────────────────────────────────────────
   pgadmin:
