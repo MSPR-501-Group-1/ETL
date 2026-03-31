@@ -6,20 +6,40 @@ from processors.nutrition.config import (
 )
 from utils.kaggle.extract import download_kaggle
 from utils.load import save_table_csv
+from utils.data_quality import DataQualityMonitor
 from utils.logger import get_logger, log_dataframe_info, log_pipeline_start, log_pipeline_success, log_pipeline_failure
 import traceback
 
+from sqlalchemy import create_engine
+from utils.db_utils import get_db_config
+
 logger = get_logger(__name__)
+
+
+def _build_engine():
+    db_config = get_db_config()
+    url = f"postgresql://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}"
+    return create_engine(url)
+
 
 def run_pipeline(reuse_spark: bool = False):
 
     log_pipeline_start(logger, "🍎 Nutrition Pipeline (combined)")
+
+    engine = _build_engine()
+    monitor = DataQualityMonitor(engine)
+    execution_id = monitor.start_execution()
+
+    records_extracted = 0
+    records_loaded = 0
+    records_rejected = 0
 
     try:
         # Step 1a: Extract source 1
         logger.info("📥 EXTRACT: Downloading nutrition data (source 1)...")
         file_path1 = download_kaggle(LOCAL_ZIP, LOCAL_FILE, RAW_DIR, KAGGLE_DATASET)
         if not file_path1:
+            monitor.end_execution(execution_id, False, 0, 0, 0, "Extraction failed (source 1)")
             log_pipeline_failure(logger, "Nutrition", "Extraction failed (source 1)")
             return False
 
@@ -43,35 +63,60 @@ def run_pipeline(reuse_spark: bool = False):
         )
 
         if df_transformed is None:
+            monitor.end_execution(execution_id, False, 0, 0, 0, "Transformation produced no data")
             log_pipeline_failure(logger, "Nutrition", "Transformation produced no data")
             return False
 
         df_transformed = df_transformed.cache()
-        count = log_dataframe_info(logger, df_transformed, "Nutrition transformed")
-        if count == 0:
+        records_extracted = df_transformed.count()
+        log_dataframe_info(logger, df_transformed, "Nutrition transformed")
+
+        if records_extracted == 0:
             df_transformed.unpersist()
+            monitor.end_execution(execution_id, False, 0, 0, 0, "Transformation produced no data")
             log_pipeline_failure(logger, "Nutrition", "Transformation produced no data")
             return False
 
-        logger.info(f"✅ Transformed {count} ingredients (combined + deduplicated)")
+        logger.info(f"✅ Transformed {records_extracted} ingredients (combined + deduplicated)")
 
-        # Step 3: Save transformed CSV
+        # Step 3: Quality check
+        logger.info("🔍 QUALITY CHECK: Validating data...")
+        rules = {
+            "not_null": ["ingredients_id", "name", "category"],
+            "positive": ["calories_g"],
+            "not_negative": ["protein_g", "carbs_g", "fat_g"],
+        }
+        clean_df, records_rejected = monitor.check_dataframe(
+            df_transformed, "ingredient", execution_id, rules
+        )
+        df_transformed.unpersist()
+        records_loaded = clean_df.count()
+
+        # Step 4: Save transformed CSV
         logger.info("📦 Saving transformed CSV...")
-        csv_path = save_table_csv(df_transformed, "ingredients", PROCESSED_DIR)
+        csv_path = save_table_csv(clean_df, "ingredients", PROCESSED_DIR)
         if csv_path is None:
-            df_transformed.unpersist()
+            monitor.end_execution(
+                execution_id, False, records_extracted, 0, records_rejected,
+                "Failed to save transformed CSV",
+            )
             log_pipeline_failure(logger, "Nutrition", "Failed to save transformed CSV")
             return False
-        df_transformed.unpersist()
 
-        log_pipeline_success(logger, "Nutrition", f"{count} ingredients transformed ({csv_path.name})")
+        monitor.end_execution(
+            execution_id, True, records_extracted, records_loaded, records_rejected,
+        )
+        log_pipeline_success(logger, "Nutrition", f"{records_loaded} ingredients loaded ({csv_path.name})")
         return True
 
     except Exception as e:
-        error_msg = f"{type(e).__name__}: {str(e)}"
-        logger.error(f"Exception occurred: {error_msg}")
+        error_message = f"{type(e).__name__}: {str(e)}"
+        logger.error(f"Exception occurred: {error_message}")
         logger.debug(traceback.format_exc())
-        log_pipeline_failure(logger, "Nutrition", error_msg)
+        monitor.end_execution(
+            execution_id, False, records_extracted, records_loaded, records_rejected, error_message,
+        )
+        log_pipeline_failure(logger, "Nutrition", error_message)
         return False
 
     finally:
