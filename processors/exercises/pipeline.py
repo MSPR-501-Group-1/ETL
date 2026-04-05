@@ -93,7 +93,7 @@ def run_pipeline(reuse_spark: bool = False):
         monitor.end_execution(
             execution_id, False, records_extracted, records_loaded, records_rejected, error_message,
         )
-        log_pipeline_failure(logger, "Exercises", error_msg)
+        log_pipeline_failure(logger, "Exercises", error_message)
         return False
         
     finally:

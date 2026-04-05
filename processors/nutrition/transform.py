@@ -158,7 +158,7 @@ def _map_source_to_mcd_schema(df: DataFrame, spec: dict) -> DataFrame:
         )
 
     return normalized_df.select(
-        food_uuid_udf(name_expr, lit(None)).alias("ingredients_id"),
+        food_uuid_udf(name_expr, lit(None)).alias("ingredient_id"),
         name_expr.alias("name"),
         _numeric_expr(spec["column_groups"]["calories_g"], spec["parser"]).alias("calories_g"),
         _numeric_expr(spec["column_groups"]["protein_g"], spec["parser"]).alias("protein_g"),
@@ -231,7 +231,7 @@ def transform_combined(spark, csv_path1: str, csv_path2: str = None) -> DataFram
     for df in frames[1:]:
         df_union = df_union.unionByName(df)
 
-    return df_union.dropDuplicates(["ingredients_id"])
+    return df_union.dropDuplicates(["ingredient_id"])
 
 
 if __name__ == "__main__":

@@ -82,9 +82,8 @@ def run_pipeline(reuse_spark: bool = False):
         # Step 3: Quality check
         logger.info("🔍 QUALITY CHECK: Validating data...")
         rules = {
-            "not_null": ["ingredients_id", "name", "category"],
-            "positive": ["calories_g"],
-            "not_negative": ["protein_g", "carbs_g", "fat_g"],
+            "not_null": ["ingredient_id", "name", "category"],
+            "not_negative": ["calories_g", "protein_g", "carbs_g", "fat_g"],
         }
         clean_df, records_rejected = monitor.check_dataframe(
             df_transformed, "ingredient", execution_id, rules
@@ -94,7 +93,7 @@ def run_pipeline(reuse_spark: bool = False):
 
         # Step 4: Save transformed CSV
         logger.info("📦 Saving transformed CSV...")
-        csv_path = save_table_csv(clean_df, "ingredients", PROCESSED_DIR)
+        csv_path = save_table_csv(clean_df, "ingredient", PROCESSED_DIR)
         if csv_path is None:
             monitor.end_execution(
                 execution_id, False, records_extracted, 0, records_rejected,

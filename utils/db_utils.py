@@ -20,8 +20,8 @@ DB_TABLE_SCHEMAS: Dict[str, List[str]] = {
         "difficulty_level", "equipment_required", "category",
     ],
     # Food / nutrition
-    "ingredients": [
-        "ingredients_id", "name",
+    "ingredient": [
+        "ingredient_id", "name",
         "calories_g", "fat_g", "nutriscore", "category",
         "fiber_g", "sugar_g", "sodium_mg", "cholesterol_mg",
         "protein_g", "carbs_g",
