@@ -18,7 +18,7 @@ _PIPELINES = {
 
 _PIPELINE_TARGETS = {
     "exercises": ("exercise", EXERCISES_PROCESSED_DIR),
-    "nutrition": ("ingredients", NUTRITION_PROCESSED_DIR),
+    "nutrition": ("ingredient", NUTRITION_PROCESSED_DIR),
 }
 
 _EXECUTION_LOCK = Lock()
