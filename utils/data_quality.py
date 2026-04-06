@@ -95,7 +95,7 @@ class DataQualityMonitor:
 
         if error_condition is None:
             logger.info(f"No rules to apply on {target_table_name}, returning full DataFrame")
-            return spark_df, 0
+            return spark_df, 0, None
 
         error_df = spark_df.filter(error_condition)
         clean_df = spark_df.filter(~error_condition)
@@ -137,13 +137,24 @@ class DataQualityMonitor:
             f"{total_rows} checked, {failed_count} failed"
         )
 
+        quality_summary = {
+            "check_id": check_id,
+            "target_table": target_table_name,
+            "check_type": "COMPOSITE_CHECK",
+            "check_rule": check_rule_summary,
+            "records_checked": total_rows,
+            "records_failed": failed_count,
+            "status": passed,
+            "checked_at": now.isoformat(),
+        }
+
         # Log individual anomalies
         if failed_count > 0:
             self._log_anomalies(
                 error_df, target_table_name, check_id, execution_id, rules
             )
 
-        return clean_df, failed_count
+        return clean_df, failed_count, quality_summary
 
     def _log_anomalies(
         self,

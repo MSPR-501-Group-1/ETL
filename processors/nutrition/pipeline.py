@@ -92,7 +92,7 @@ def run_pipeline(reuse_spark: bool = False):
             "not_null": ["ingredient_id", "name", "category"],
             "not_negative": ["calories_g", "protein_g", "carbs_g", "fat_g"],
         }
-        clean_df, records_rejected = monitor.check_dataframe(
+        clean_df, records_rejected, quality_summary = monitor.check_dataframe(
             df_transformed, "ingredient", execution_id, rules
         )
         df_transformed.unpersist()
@@ -113,7 +113,13 @@ def run_pipeline(reuse_spark: bool = False):
             execution_id, True, records_extracted, records_loaded, records_rejected,
         )
         log_pipeline_success(logger, "Nutrition", f"{records_loaded} ingredients loaded ({csv_path.name})")
-        return True
+        return {
+            "execution_id": execution_id,
+            "records_extracted": records_extracted,
+            "records_loaded": records_loaded,
+            "records_rejected": records_rejected,
+            "quality": quality_summary,
+        }
 
     except Exception as e:
         error_message = f"{type(e).__name__}: {str(e)}"

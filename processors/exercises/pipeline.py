@@ -63,7 +63,7 @@ def run_pipeline(reuse_spark: bool = False):
         rules = {
             "not_null": ["exercise_id", "name", "body_part_target", "difficulty_level", "category"],
         }
-        clean_df, records_rejected = monitor.check_dataframe(
+        clean_df, records_rejected, quality_summary = monitor.check_dataframe(
             df_transformed, "exercise", execution_id, rules
         )
         df_transformed.unpersist()
@@ -84,7 +84,13 @@ def run_pipeline(reuse_spark: bool = False):
             execution_id, True, records_extracted, records_loaded, records_rejected,
         )
         log_pipeline_success(logger, "Exercises", f"{records_loaded} exercises loaded ({csv_path.name})")
-        return True
+        return {
+            "execution_id": execution_id,
+            "records_extracted": records_extracted,
+            "records_loaded": records_loaded,
+            "records_rejected": records_rejected,
+            "quality": quality_summary,
+        }
 
     except Exception as e:
         error_message = f"{type(e).__name__}: {str(e)}"

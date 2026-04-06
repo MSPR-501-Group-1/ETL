@@ -21,15 +21,23 @@ def _validate_pipeline_name(name: str) -> None:
 
 def transform_pipeline(name: str) -> dict:
     _validate_pipeline_name(name)
-    success = run_pipeline(name)
-    if not success:
+    result = run_pipeline(name)
+    if not result:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"error": "Pipeline execution failed", "pipeline": name},
         )
 
     logger.info(f"📥 API transform request succeeded: pipeline={name}")
-    return {"pipeline": name, "status": "transformed", "message": "Transform réussi"}
+    return {
+        "pipeline": name,
+        "status": "transformed",
+        "execution_id": result.get("execution_id"),
+        "records_extracted": result.get("records_extracted"),
+        "records_loaded": result.get("records_loaded"),
+        "records_rejected": result.get("records_rejected"),
+        "quality_check": result.get("quality"),
+    }
 
 
 def load_pipeline(name: str) -> dict:

@@ -54,37 +54,41 @@ def _apply_migrations(conn, statements: list[str]) -> None:
 def init_db_schema(sql_path: str = None) -> bool:
 
     config = get_db_config()
-    if sql_path is None:
-        sql_path = _default_schema_path()
-    sql_path = Path(sql_path)
-
-    if not sql_path.exists():
-        logger.error(f"init_db_schema: SQL file not found: {sql_path}")
-        return False
-
     conn = None
     try:
-        with open(sql_path, "r", encoding="utf-8") as f:
-            sql = f.read()
-
         conn = _connect_db(config)
-        schema_exists = False
+
+        # Check if schema already exists (e.g. initialized by docker-entrypoint)
         with conn:
             with conn.cursor() as cur:
-                # Skip if schema already initialized (e.g. by docker-entrypoint)
                 cur.execute("SELECT to_regclass('public.exercise')")
                 schema_exists = cur.fetchone()[0] is not None
-                if not schema_exists:
-                    cur.execute(sql)
 
         if schema_exists:
             logger.info("✅ Database schema already exists, skipping init")
-        else:
-            logger.info(f"✅ Database schema initialized from {sql_path}")
+            _apply_migrations(conn, _EXERCISE_MIGRATIONS)
+            return True
 
+        # Schema missing — resolve and run the SQL file
+        if sql_path is None:
+            sql_path = _default_schema_path()
+        sql_path = Path(sql_path)
+
+        if not sql_path.exists():
+            logger.error(f"init_db_schema: SQL file not found: {sql_path}")
+            return False
+
+        with open(sql_path, "r", encoding="utf-8") as f:
+            sql = f.read()
+
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(sql)
+
+        logger.info(f"✅ Database schema initialized from {sql_path}")
         _apply_migrations(conn, _EXERCISE_MIGRATIONS)
-
         return True
+
     except Exception as e:
         logger.error(f"init_db_schema failed: {e}")
         return False
