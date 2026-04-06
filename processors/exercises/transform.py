@@ -49,7 +49,7 @@ def _category_expr():
         .otherwise(lit("OTHER"))
     )
 
-
+# Use of Spark to transform exercises data from JSON to match the MCD `exercise` table schema.
 def transform_exercises(spark: SparkSession, json_path: str) -> DataFrame:
     """Load, map and clean exercise JSON → MCD `exercise` table."""
     if not Path(json_path).exists():

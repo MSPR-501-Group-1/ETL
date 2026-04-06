@@ -48,7 +48,7 @@ def _category_expr():
         .otherwise(lit("OTHER"))
     )
 
-
+# Use of Spark to transform nutrition data from CSV to match the MCD `ingredients` table schema.
 def transform_nutrition(spark: SparkSession, csv_path: str) -> DataFrame:
     """Load, map, and clean source 1 → MCD `ingredients` schema."""
     if not Path(csv_path).exists():
