@@ -1,8 +1,12 @@
+from functools import reduce
+
+from pyspark.sql import DataFrame
 from spark.session import get_spark, stop_spark
-from processors.nutrition.transform import transform_combined
+from processors.nutrition.transform_nutrition import transform_nutrition
+from processors.nutrition.transform_nutrition_values import transform_nutrition_values
 from processors.nutrition.config import (
-    LOCAL_FILE, LOCAL_ZIP, RAW_DIR, KAGGLE_DATASET, PROCESSED_DIR,
-    LOCAL_FILE_2, LOCAL_ZIP_2, RAW_DIR_2, KAGGLE_DATASET_2,
+    LOCAL_FILE, RAW_DIR, KAGGLE_DATASET, PROCESSED_DIR,
+    LOCAL_FILE_2, RAW_DIR_2, KAGGLE_DATASET_2,
 )
 from utils.kaggle.extract import download_kaggle
 from utils.load import save_table_csv
@@ -37,7 +41,7 @@ def run_pipeline(reuse_spark: bool = False):
     try:
         # Step 1a: Extract source 1
         logger.info("📥 EXTRACT: Downloading nutrition data (source 1)...")
-        file_path1 = download_kaggle(LOCAL_ZIP, LOCAL_FILE, RAW_DIR, KAGGLE_DATASET)
+        file_path1 = download_kaggle(LOCAL_FILE, RAW_DIR, KAGGLE_DATASET)
         if not file_path1:
             monitor.end_execution(execution_id, False, 0, 0, 0, "Extraction failed (source 1)")
             log_pipeline_failure(logger, "Nutrition", "Extraction failed (source 1)")
@@ -45,7 +49,7 @@ def run_pipeline(reuse_spark: bool = False):
 
         # Step 1b: Extract source 2 (non-blocking: warn and continue if unavailable)
         logger.info("📥 EXTRACT: Downloading nutrition values data (source 2)...")
-        file_path2 = download_kaggle(LOCAL_ZIP_2, LOCAL_FILE_2, RAW_DIR_2, KAGGLE_DATASET_2)
+        file_path2 = download_kaggle(LOCAL_FILE_2, RAW_DIR_2, KAGGLE_DATASET_2)
         if not file_path2:
             logger.warning("⚠️  Source 2 extraction failed — continuing with source 1 only")
 
@@ -54,13 +58,16 @@ def run_pipeline(reuse_spark: bool = False):
         if file_path2:
             logger.info(f"✅ Source 2 ready: {LOCAL_FILE_2}")
 
-        # Step 2: Transform + Union
-        logger.info("🔄 TRANSFORM: Processing and merging both sources...")
-        df_transformed = transform_combined(
-            spark,
-            str(LOCAL_FILE),
-            str(LOCAL_FILE_2) if file_path2 else None,
-        )
+        # Step 2: Transform each source
+        logger.info("🔄 TRANSFORM: Processing source 1...")
+        frames = [transform_nutrition(spark, str(LOCAL_FILE))]
+
+        if file_path2:
+            logger.info("🔄 TRANSFORM: Processing source 2...")
+            frames.append(transform_nutrition_values(spark, str(LOCAL_FILE_2)))
+
+        # Step 3: Union + deduplicate
+        df_transformed = reduce(DataFrame.unionByName, frames).dropDuplicates(["ingredient_id"])
 
         if df_transformed is None:
             monitor.end_execution(execution_id, False, 0, 0, 0, "Transformation produced no data")
@@ -79,13 +86,13 @@ def run_pipeline(reuse_spark: bool = False):
 
         logger.info(f"✅ Transformed {records_extracted} ingredients (combined + deduplicated)")
 
-        # Step 3: Quality check
+   # Step 4: Quality check
         logger.info("🔍 QUALITY CHECK: Validating data...")
         rules = {
             "not_null": ["ingredient_id", "name", "category"],
             "not_negative": ["calories_g", "protein_g", "carbs_g", "fat_g"],
         }
-        clean_df, records_rejected = monitor.check_dataframe(
+        clean_df, records_rejected, quality_summary = monitor.check_dataframe(
             df_transformed, "ingredient", execution_id, rules
         )
         df_transformed.unpersist()
@@ -106,7 +113,13 @@ def run_pipeline(reuse_spark: bool = False):
             execution_id, True, records_extracted, records_loaded, records_rejected,
         )
         log_pipeline_success(logger, "Nutrition", f"{records_loaded} ingredients loaded ({csv_path.name})")
-        return True
+        return {
+            "execution_id": execution_id,
+            "records_extracted": records_extracted,
+            "records_loaded": records_loaded,
+            "records_rejected": records_rejected,
+            "quality": quality_summary,
+        }
 
     except Exception as e:
         error_message = f"{type(e).__name__}: {str(e)}"

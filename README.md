@@ -59,6 +59,8 @@ Base URL:
 
 - http://localhost:8000
 
+Accéder au swagger FASTAPI: http://localhost:8000/docs
+
 Endpoints:
 
 - POST /api/pipelines/exercises/transform
