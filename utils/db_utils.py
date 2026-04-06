@@ -6,11 +6,11 @@ from typing import Dict, List
 def get_db_config() -> dict:
     """Get database configuration from environment"""
     return {
-        "host": os.getenv("POSTGRES_HOST", "localhost"),
-        "port": os.getenv("POSTGRES_PORT", "5432"),
-        "database": os.getenv("POSTGRES_DB", "healthai_db"),
-        "user": os.getenv("POSTGRES_USER", "healthai"),
-        "password": os.getenv("POSTGRES_PASSWORD", "password"),
+        "host": os.getenv("DB_HOST", "localhost"),
+        "port": os.getenv("DB_PORT", "5432"),
+        "database": os.getenv("DB_NAME", "healthai_db"),
+        "user": os.getenv("DB_USER", "healthai"),
+        "password": os.getenv("DB_PASSWORD", "password"),
     }
 
 DB_TABLE_SCHEMAS: Dict[str, List[str]] = {

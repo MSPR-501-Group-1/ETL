@@ -73,7 +73,7 @@ def transform_nutrition_values(spark: SparkSession, csv_path: str) -> DataFrame:
 
     return (
         df.select(
-            food_uuid_udf(name_expr, lit(None)).alias("ingredients_id"),
+            food_uuid_udf(name_expr, lit(None)).alias("ingredient_id"),
             name_expr.alias("name"),
             _num("calories", "energy_kcal", "energy", "calorie").alias("calories_g"),
             _num("protein_g", "protein", "proteins").alias("protein_g"),

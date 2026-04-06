@@ -38,7 +38,7 @@ def _connect_db(config: dict):
 
 
 def _default_schema_path() -> Path:
-    return Path(__file__).resolve().parent.parent / "database" / "01_initdb.sql"
+    return Path(__file__).resolve().parent.parent.parent / "database" / "01_initdb.sql"
 
 
 def _apply_migrations(conn, statements: list[str]) -> None:

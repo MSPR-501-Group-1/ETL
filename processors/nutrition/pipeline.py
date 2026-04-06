@@ -67,7 +67,7 @@ def run_pipeline(reuse_spark: bool = False):
             frames.append(transform_nutrition_values(spark, str(LOCAL_FILE_2)))
 
         # Step 3: Union + deduplicate
-        df_transformed = reduce(DataFrame.unionByName, frames).dropDuplicates(["ingredients_id"])
+        df_transformed = reduce(DataFrame.unionByName, frames).dropDuplicates(["ingredient_id"])
 
         if df_transformed is None:
             monitor.end_execution(execution_id, False, 0, 0, 0, "Transformation produced no data")
@@ -86,7 +86,7 @@ def run_pipeline(reuse_spark: bool = False):
 
         logger.info(f"✅ Transformed {records_extracted} ingredients (combined + deduplicated)")
 
-   # Step 3: Quality check
+   # Step 4: Quality check
         logger.info("🔍 QUALITY CHECK: Validating data...")
         rules = {
             "not_null": ["ingredient_id", "name", "category"],
@@ -98,7 +98,8 @@ def run_pipeline(reuse_spark: bool = False):
         df_transformed.unpersist()
         records_loaded = clean_df.count()
 
-        # Step 4: Save transformed CSV        logger.info("📦 Saving transformed CSV...")
+        # Step 4: Save transformed CSV
+        logger.info("📦 Saving transformed CSV...")
         csv_path = save_table_csv(clean_df, "ingredient", PROCESSED_DIR)
         if csv_path is None:
             monitor.end_execution(
