@@ -1,9 +1,11 @@
 from threading import Lock
+from typing import Union
 
 from spark.session import stop_spark
 
 from processors.exercises.pipeline import run_pipeline as run_exercises_pipeline
 from processors.nutrition.pipeline import run_pipeline as run_nutrition_pipeline
+from utils.data_quality import mark_loaded_execution
 from utils.load import init_db_schema, load_table_from_processed
 from utils.logger import get_logger
 from processors.exercises.config import PROCESSED_DIR as EXERCISES_PROCESSED_DIR
@@ -28,7 +30,7 @@ def list_pipelines() -> list[str]:
     return list(_PIPELINES)
 
 
-def run_pipeline(name: str) -> bool:
+def run_pipeline(name: str) -> Union[dict, bool]:
     if name not in _PIPELINES:
         logger.error(f"Unknown pipeline: {name}")
         logger.info(f"Available: {', '.join(list_pipelines())}")
@@ -54,7 +56,10 @@ def load_pipeline_data(name: str, execution_id: str) -> bool:
 
     table_name, output_dir = target
     logger.info(f"📤 Loading transformed CSV for pipeline={name}, table={table_name}, execution_id={execution_id}")
-    return load_table_from_processed(table_name, output_dir, execution_id)
+    success = load_table_from_processed(table_name, output_dir, execution_id)
+    if success:
+        mark_loaded_execution(execution_id)
+    return success
 
 def _init_db() -> bool:
     logger.info("🗄️ Initializing database schema...")

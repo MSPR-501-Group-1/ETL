@@ -26,7 +26,7 @@ def run_pipeline(reuse_spark: bool = False):
 
     engine = _build_engine()
     monitor = DataQualityMonitor(engine)
-    execution_id = monitor.start_execution()
+    execution_id = monitor.start_execution("exercises")
 
     records_extracted = 0
     records_loaded = 0
@@ -38,7 +38,7 @@ def run_pipeline(reuse_spark: bool = False):
         file_path = download_github(LOCAL_FILE, URLS, force_download=False)
 
         if not file_path:
-            monitor.end_execution(execution_id, False, 0, 0, 0, "Extraction failed")
+            monitor.end_execution(execution_id, 'FAILED', 0, 0, 0, "Extraction failed")
             log_pipeline_failure(logger, "Exercises", "Extraction failed")
             return False
 
@@ -54,7 +54,7 @@ def run_pipeline(reuse_spark: bool = False):
 
         if records_extracted == 0:
             df_transformed.unpersist()
-            monitor.end_execution(execution_id, False, 0, 0, 0, "Transformation produced no data")
+            monitor.end_execution(execution_id, 'FAILED', 0, 0, 0, "Transformation produced no data")
             log_pipeline_failure(logger, "Exercises", "Transformation produced no data")
             return False
 
@@ -75,14 +75,14 @@ def run_pipeline(reuse_spark: bool = False):
         csv_path = save_table_csv(clean_df, "exercise", PROCESSED_DIR, execution_id)
         if csv_path is None:
             monitor.end_execution(
-                execution_id, False, records_extracted, 0, records_rejected,
+                execution_id, 'FAILED', records_extracted, 0, records_rejected,
                 "Failed to save transformed CSV",
             )
             log_pipeline_failure(logger, "Exercises", "Failed to save transformed CSV")
             return False
 
         monitor.end_execution(
-            execution_id, True, records_extracted, records_loaded, records_rejected,
+            execution_id, 'TRANSFORMED', records_extracted, records_loaded, records_rejected,
         )
         log_pipeline_success(logger, "Exercises", f"{records_loaded} exercises loaded ({csv_path.name})")
         return {
@@ -98,7 +98,7 @@ def run_pipeline(reuse_spark: bool = False):
         logger.error(f"Exception occurred: {error_message}")
         logger.debug(traceback.format_exc())
         monitor.end_execution(
-            execution_id, False, records_extracted, records_loaded, records_rejected, error_message,
+            execution_id, 'FAILED', records_extracted, records_loaded, records_rejected, error_message,
         )
         log_pipeline_failure(logger, "Exercises", error_message)
         return False

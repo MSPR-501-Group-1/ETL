@@ -27,6 +27,7 @@ _EXERCISE_MIGRATIONS = [
 ]
 
 
+
 def _connect_db(config: dict):
     return psycopg2.connect(
         host=config["host"],
