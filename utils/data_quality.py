@@ -1,17 +1,38 @@
-"""
-Data quality monitoring for ETL pipelines.
+"""Data quality monitoring for ETL pipelines.
 Tracks executions, quality checks and anomalies in PostgreSQL.
 """
 import uuid
 from datetime import datetime
 
+import psycopg2
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 from sqlalchemy import text
 
+from utils.db_utils import get_db_config
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def mark_loaded_execution(execution_id: str) -> None:
+    """Update etl_execution status to LOADED after a successful load."""
+    config = get_db_config()
+    try:
+        conn = psycopg2.connect(
+            host=config["host"], port=int(config["port"]),
+            dbname=config["database"], user=config["user"], password=config["password"],
+        )
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE etl_execution SET status = 'LOADED' WHERE execution_id = %s",
+                    (execution_id,),
+                )
+        conn.close()
+        logger.info(f"ETL execution marked as LOADED: {execution_id}")
+    except Exception as e:
+        logger.error(f"mark_loaded_execution failed: {e}")
 
 
 class DataQualityMonitor:
@@ -19,25 +40,25 @@ class DataQualityMonitor:
     def __init__(self, engine):
         self.engine = engine
 
-    def start_execution(self) -> str:
+    def start_execution(self, name: str) -> str:
         execution_id = str(uuid.uuid4())
         now = datetime.now()
         with self.engine.begin() as conn:
             conn.execute(
                 text(
                     "INSERT INTO etl_execution "
-                    "(execution_id, started_at, status, records_extracted, records_loaded, records_rejected) "
-                    "VALUES (:execution_id, :started_at, FALSE, 0, 0, 0)"
+                    "(execution_id, name, started_at, status, records_extracted, records_loaded, records_rejected) "
+                    "VALUES (:execution_id, :name, :started_at, 'PENDING', 0, 0, 0)"
                 ),
-                {"execution_id": execution_id, "started_at": now},
+                {"execution_id": execution_id, "name": name, "started_at": now},
             )
-        logger.info(f"ETL execution started: {execution_id}")
+        logger.info(f"ETL execution started: {execution_id} pipeline={name}")
         return execution_id
 
     def end_execution(
         self,
         execution_id: str,
-        status: bool,
+        status: str,
         records_extracted: int,
         records_loaded: int,
         records_rejected: int,

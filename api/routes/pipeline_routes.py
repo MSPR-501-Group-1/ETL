@@ -25,18 +25,18 @@ def transform_nutrition() -> PipelineActionResponse:
 
 
 @router.post(
-    "/pipelines/exercises/load",
+    "/pipelines/exercises/load/{execution_id}",
     response_model=PipelineActionResponse,
     status_code=status.HTTP_200_OK,
 )
-def load_exercises() -> PipelineActionResponse:
-    return PipelineActionResponse(**load_pipeline("exercises"))
+def load_exercises(execution_id: str) -> PipelineActionResponse:
+    return PipelineActionResponse(**load_pipeline("exercises", execution_id))
 
 
 @router.post(
-    "/pipelines/nutrition/load",
+    "/pipelines/nutrition/load/{execution_id}",
     response_model=PipelineActionResponse,
     status_code=status.HTTP_200_OK,
 )
-def load_nutrition() -> PipelineActionResponse:
-    return PipelineActionResponse(**load_pipeline("nutrition"))
+def load_nutrition(execution_id: str) -> PipelineActionResponse:
+    return PipelineActionResponse(**load_pipeline("nutrition", execution_id))

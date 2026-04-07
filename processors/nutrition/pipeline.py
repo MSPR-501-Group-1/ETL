@@ -32,7 +32,7 @@ def run_pipeline(reuse_spark: bool = False):
 
     engine = _build_engine()
     monitor = DataQualityMonitor(engine)
-    execution_id = monitor.start_execution()
+    execution_id = monitor.start_execution("nutrition")
 
     records_extracted = 0
     records_loaded = 0
@@ -43,7 +43,7 @@ def run_pipeline(reuse_spark: bool = False):
         logger.info("📥 EXTRACT: Downloading nutrition data (source 1)...")
         file_path1 = download_kaggle(LOCAL_FILE, RAW_DIR, KAGGLE_DATASET)
         if not file_path1:
-            monitor.end_execution(execution_id, False, 0, 0, 0, "Extraction failed (source 1)")
+            monitor.end_execution(execution_id, 'FAILED', 0, 0, 0, "Extraction failed (source 1)")
             log_pipeline_failure(logger, "Nutrition", "Extraction failed (source 1)")
             return False
 
@@ -69,18 +69,13 @@ def run_pipeline(reuse_spark: bool = False):
         # Step 3: Union + deduplicate
         df_transformed = reduce(DataFrame.unionByName, frames).dropDuplicates(["ingredient_id"])
 
-        if df_transformed is None:
-            monitor.end_execution(execution_id, False, 0, 0, 0, "Transformation produced no data")
-            log_pipeline_failure(logger, "Nutrition", "Transformation produced no data")
-            return False
-
         df_transformed = df_transformed.cache()
         records_extracted = df_transformed.count()
         log_dataframe_info(logger, df_transformed, "Nutrition transformed")
 
         if records_extracted == 0:
             df_transformed.unpersist()
-            monitor.end_execution(execution_id, False, 0, 0, 0, "Transformation produced no data")
+            monitor.end_execution(execution_id, 'FAILED', 0, 0, 0, "Transformation produced no data")
             log_pipeline_failure(logger, "Nutrition", "Transformation produced no data")
             return False
 
@@ -100,17 +95,18 @@ def run_pipeline(reuse_spark: bool = False):
 
         # Step 4: Save transformed CSV
         logger.info("📦 Saving transformed CSV...")
-        csv_path = save_table_csv(clean_df, "ingredient", PROCESSED_DIR)
+        logger.info(f"🆔 Execution ID: {execution_id}")
+        csv_path = save_table_csv(clean_df, "ingredient", PROCESSED_DIR, execution_id)
         if csv_path is None:
             monitor.end_execution(
-                execution_id, False, records_extracted, 0, records_rejected,
+                execution_id, 'FAILED', records_extracted, 0, records_rejected,
                 "Failed to save transformed CSV",
             )
             log_pipeline_failure(logger, "Nutrition", "Failed to save transformed CSV")
             return False
 
         monitor.end_execution(
-            execution_id, True, records_extracted, records_loaded, records_rejected,
+            execution_id, 'TRANSFORMED', records_extracted, records_loaded, records_rejected,
         )
         log_pipeline_success(logger, "Nutrition", f"{records_loaded} ingredients loaded ({csv_path.name})")
         return {
@@ -126,7 +122,7 @@ def run_pipeline(reuse_spark: bool = False):
         logger.error(f"Exception occurred: {error_message}")
         logger.debug(traceback.format_exc())
         monitor.end_execution(
-            execution_id, False, records_extracted, records_loaded, records_rejected, error_message,
+            execution_id, 'FAILED', records_extracted, records_loaded, records_rejected, error_message,
         )
         log_pipeline_failure(logger, "Nutrition", error_message)
         return False

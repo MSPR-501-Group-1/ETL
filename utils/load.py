@@ -27,6 +27,7 @@ _EXERCISE_MIGRATIONS = [
 ]
 
 
+
 def _connect_db(config: dict):
     return psycopg2.connect(
         host=config["host"],
@@ -104,7 +105,7 @@ def _align_df_to_schema(df: DataFrame, schema_cols: list[str]) -> DataFrame:
     return aligned_df.select(schema_cols)
 
 
-def save_table_csv(df: DataFrame, table_name: str, output_dir) -> Path | None:
+def save_table_csv(df: DataFrame, table_name: str, output_dir, execution_id: str) -> Path | None:
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -116,7 +117,7 @@ def save_table_csv(df: DataFrame, table_name: str, output_dir) -> Path | None:
     result_df = _align_df_to_schema(df, schema_cols)
 
     tmp_dir = output_dir / f"_{table_name}_csv_tmp_{uuid4().hex}"
-    final_csv = output_dir / f"{table_name}.csv"
+    final_csv = output_dir / f"{table_name}_{execution_id}.csv"
 
     try:
         result_df.coalesce(1).write.mode("overwrite") \
@@ -140,9 +141,9 @@ def save_table_csv(df: DataFrame, table_name: str, output_dir) -> Path | None:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-def load_table_from_processed(table_name: str, output_dir) -> bool:
+def load_table_from_processed(table_name: str, output_dir, execution_id: str) -> bool:
     output_dir = Path(output_dir)
-    csv_path = output_dir / f"{table_name}.csv"
+    csv_path = output_dir / f"{table_name}_{execution_id}.csv"
     return load_csv_to_postgres(csv_path, table_name)
 
 
