@@ -40,14 +40,14 @@ def transform_pipeline(name: str) -> dict:
     }
 
 
-def load_pipeline(name: str) -> dict:
+def load_pipeline(name: str, execution_id: str) -> dict:
     _validate_pipeline_name(name)
-    success = load_pipeline_data(name)
+    success = load_pipeline_data(name, execution_id)
     if not success:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"error": "Load failed", "pipeline": name},
         )
 
-    logger.info(f"📦 API load request succeeded: pipeline={name}")
-    return {"pipeline": name, "status": "loaded", "message": "Load réussi"}
+    logger.info(f"📦 API load request succeeded: pipeline={name}, execution_id={execution_id}")
+    return {"pipeline": name, "status": "loaded", "execution_id": execution_id}

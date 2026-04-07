@@ -71,7 +71,8 @@ def run_pipeline(reuse_spark: bool = False):
 
         # Step 4: Load
         logger.info("📦 Saving transformed CSV...")
-        csv_path = save_table_csv(clean_df, "exercise", PROCESSED_DIR)
+        logger.info(f"🆔 Execution ID: {execution_id}")
+        csv_path = save_table_csv(clean_df, "exercise", PROCESSED_DIR, execution_id)
         if csv_path is None:
             monitor.end_execution(
                 execution_id, False, records_extracted, 0, records_rejected,

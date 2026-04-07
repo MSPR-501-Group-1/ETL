@@ -42,7 +42,7 @@ def run_pipeline(name: str) -> bool:
             stop_spark()
 
 
-def load_pipeline_data(name: str) -> bool:
+def load_pipeline_data(name: str, execution_id: str) -> bool:
     target = _PIPELINE_TARGETS.get(name)
     if target is None:
         logger.error(f"Unknown pipeline for load: {name}")
@@ -53,8 +53,8 @@ def load_pipeline_data(name: str) -> bool:
         return False
 
     table_name, output_dir = target
-    logger.info(f"📤 Loading transformed CSV for pipeline={name}, table={table_name}")
-    return load_table_from_processed(table_name, output_dir)
+    logger.info(f"📤 Loading transformed CSV for pipeline={name}, table={table_name}, execution_id={execution_id}")
+    return load_table_from_processed(table_name, output_dir, execution_id)
 
 def _init_db() -> bool:
     logger.info("🗄️ Initializing database schema...")
