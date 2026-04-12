@@ -5,6 +5,7 @@ from spark.session import stop_spark
 
 from processors.exercises.pipeline import run_pipeline as run_exercises_pipeline
 from processors.nutrition.pipeline import run_pipeline as run_nutrition_pipeline
+from utils.dlq import replay_corrected_rows
 from utils.data_quality import mark_loaded_execution
 from utils.load import init_db_schema, load_table_from_processed
 from utils.logger import get_logger
@@ -60,6 +61,16 @@ def load_pipeline_data(name: str, execution_id: str) -> bool:
     if success:
         mark_loaded_execution(execution_id)
     return success
+
+
+def replay_dlq_data(source_table: str, execution_id: str) -> dict:
+    with _EXECUTION_LOCK:
+        logger.info(
+            "Replay DLQ requested: table=%s execution_id=%s",
+            source_table,
+            execution_id,
+        )
+        return replay_corrected_rows(source_table, execution_id)
 
 def _init_db() -> bool:
     logger.info("🗄️ Initializing database schema...")
