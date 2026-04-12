@@ -3,8 +3,8 @@ from pathlib import Path
 
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import (
-    coalesce, col, least, lit, lower, regexp_extract,
-    round as spark_round, substring, trim, when,
+    coalesce, col, least, lit, lower, regexp_extract, regexp_replace,
+    round as spark_round, split, substring, trim, when,
 )
 from pyspark.sql.types import DoubleType, StringType
 
@@ -66,15 +66,18 @@ def transform_nutrition_values(spark: SparkSession, csv_path: str) -> DataFrame:
         "sugar_g", "sugars", "sugar", "total_sugars",
         "sodium_mg", "sodium", "cholesterol_mg", "cholesterol",
     ])
-    _name = coalesce(trim(col("name")), lit("Unknown"))
-    name_expr = substring(_name, 1, 50)
+    _raw = coalesce(trim(col("name")), lit("Unknown"))
+    _strip_quotes = lambda c: regexp_replace(c, r'^"+', '')
+    usda_name_expr = _strip_quotes(substring(_raw, 1, 255))
+    name_expr = _strip_quotes(substring(trim(split(_raw, ",")[0]), 1, 100))
     _salt = _tc("salt")
     _sodium_from_salt = when(_salt.isNotNull(), spark_round(_salt * 400.0, 2))
 
     return (
         df.select(
-            food_uuid_udf(name_expr, lit(None)).alias("ingredient_id"),
+            food_uuid_udf(usda_name_expr, lit(None)).alias("ingredient_id"),
             name_expr.alias("name"),
+            usda_name_expr.alias("usda_name"),
             _num("calories", "energy_kcal", "energy", "calorie").alias("calories_g"),
             _num("protein_g", "protein", "proteins").alias("protein_g"),
             _num("carbohydrate_g", "carbs_g", "carbohydrates", "carbs", "total_carbohydrate").alias("carbs_g"),
@@ -86,7 +89,7 @@ def transform_nutrition_values(spark: SparkSession, csv_path: str) -> DataFrame:
             least(coalesce(_tc("sodium_mg"), _tc("sodium"), _sodium_from_salt, lit(0.0)), lit(999.9)).alias("sodium_mg"),
             _num("cholesterol_mg", "cholesterol").alias("cholesterol_mg"),
         )
-        .dropDuplicates(["name"])
+        .dropDuplicates(["usda_name"])
         .filter(
             col("name").isNotNull()
             & (col("name") != "")

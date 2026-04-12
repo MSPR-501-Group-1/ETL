@@ -65,8 +65,10 @@ Endpoints:
 
 - POST /api/pipelines/exercises/transform
 - POST /api/pipelines/nutrition/transform
-- POST /api/pipelines/exercises/load
-- POST /api/pipelines/nutrition/load
+- POST /api/pipelines/exercises/load/{execution_id}
+- POST /api/pipelines/nutrition/load/{execution_id}
+
+Le endpoint load requiert l'identifiant retourné par transform (`execution_id`).
 
 Réponse standard:
 

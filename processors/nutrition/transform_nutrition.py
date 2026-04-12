@@ -3,8 +3,8 @@ from pathlib import Path
 
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import (
-    coalesce, col, least, lit, lower,
-    round as spark_round, substring, trim, when,
+    coalesce, col, least, lit, lower, regexp_replace,
+    round as spark_round, split, substring, trim, when,
 )
 from pyspark.sql.types import DoubleType, StringType
 
@@ -65,13 +65,16 @@ def transform_nutrition(spark: SparkSession, csv_path: str) -> DataFrame:
         "sugars_g", "sugar_g", "sugars",
         "sodium_mg", "sodium", "cholesterol_mg", "cholesterol",
     ])
-    _name = coalesce(trim(col("food_item")), lit("Unknown"))
-    name_expr = substring(_name, 1, 50)
+    _raw = coalesce(trim(col("food_item")), lit("Unknown"))
+    _strip_quotes = lambda c: regexp_replace(c, r'^"+', '')
+    usda_name_expr = _strip_quotes(substring(_raw, 1, 255))
+    name_expr = _strip_quotes(substring(trim(split(_raw, ",")[0]), 1, 100))
 
     return (
         df.select(
-            food_uuid_udf(name_expr, lit(None)).alias("ingredient_id"),
+            food_uuid_udf(usda_name_expr, lit(None)).alias("ingredient_id"),
             name_expr.alias("name"),
+            usda_name_expr.alias("usda_name"),
             _num("calories_kcal").alias("calories_g"),
             _num("protein_g", "protein").alias("protein_g"),
             _num("carbohydrates_g", "carbohydrate_g", "carbs_g", "carbohydrates").alias("carbs_g"),
@@ -83,7 +86,7 @@ def transform_nutrition(spark: SparkSession, csv_path: str) -> DataFrame:
             _num("sodium_mg", "sodium").alias("sodium_mg"),
             _num("cholesterol_mg", "cholesterol").alias("cholesterol_mg"),
         )
-        .dropDuplicates(["name"])
+        .dropDuplicates(["usda_name"])
         .filter(
             col("name").isNotNull()
             & (col("name") != "")

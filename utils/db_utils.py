@@ -21,7 +21,7 @@ DB_TABLE_SCHEMAS: Dict[str, List[str]] = {
     ],
     # Food / nutrition
     "ingredient": [
-        "ingredient_id", "name",
+        "ingredient_id", "name", "usda_name",
         "calories_g", "fat_g", "nutriscore", "category",
         "fiber_g", "sugar_g", "sodium_mg", "cholesterol_mg",
         "protein_g", "carbs_g",
