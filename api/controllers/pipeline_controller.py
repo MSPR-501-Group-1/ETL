@@ -1,6 +1,6 @@
 from fastapi import HTTPException, status
 
-from services.pipeline_runner import list_pipelines, load_pipeline_data, run_pipeline
+from services.pipeline_runner import list_pipelines, load_pipeline_data, replay_dlq_data, run_pipeline
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -51,3 +51,31 @@ def load_pipeline(name: str, execution_id: str) -> dict:
 
     logger.info(f"📦 API load request succeeded: pipeline={name}, execution_id={execution_id}")
     return {"pipeline": name, "status": "loaded", "execution_id": execution_id}
+
+
+def replay_dlq(source_table: str, execution_id: str) -> dict:
+    try:
+        result = replay_dlq_data(source_table, execution_id)
+    except FileNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "DLQ file not found", "details": str(error)},
+        ) from error
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "Invalid replay request", "details": str(error)},
+        ) from error
+    except Exception as error:  # pragma: no cover - defensive path
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "DLQ replay failed", "details": str(error)},
+        ) from error
+
+    logger.info(
+        "♻️ API replay request succeeded: table=%s, execution_id=%s, replayed=%s",
+        source_table,
+        execution_id,
+        result.get("replayed", 0),
+    )
+    return result

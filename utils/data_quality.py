@@ -1,8 +1,12 @@
 """Data quality monitoring for ETL pipelines.
 Tracks executions, quality checks and anomalies in PostgreSQL.
 """
+import csv
+import json
+import math
 import uuid
 from datetime import datetime
+from pathlib import Path
 
 import psycopg2
 from pyspark.sql import DataFrame
@@ -13,6 +17,57 @@ from utils.db_utils import get_db_config
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+DLQ_BASE_DIR = Path(__file__).resolve().parent.parent / "data" / "processed" / "dlq"
+DLQ_HEADERS = [
+    "anomaly_id",
+    "execution_id",
+    "check_id",
+    "source_table",
+    "field_name",
+    "record_identifier",
+    "rule_type",
+    "severity",
+    "detected_at",
+    "original_value",
+    "corrected_value",
+    "row_payload_json",
+    "is_corrected",
+    "corrected_by",
+    "corrected_at",
+    "replay_status",
+    "replayed_at",
+    "last_error",
+]
+
+
+def _to_serializable(value):
+    if value is None:
+        return None
+
+    if hasattr(value, "item"):
+        try:
+            value = value.item()
+        except Exception:
+            pass
+
+    if isinstance(value, float) and math.isnan(value):
+        return None
+
+    if hasattr(value, "isoformat"):
+        try:
+            return value.isoformat()
+        except Exception:
+            pass
+
+    return value
+
+
+def _to_string_or_empty(value):
+    normalized = _to_serializable(value)
+    if normalized is None:
+        return ""
+    return str(normalized)
 
 
 def mark_loaded_execution(execution_id: str) -> None:
@@ -189,7 +244,14 @@ class DataQualityMonitor:
         rows = error_df.limit(1000).toPandas()
 
         anomalies = []
+        dlq_rows = []
         for _, row in rows.iterrows():
+            row_payload = {
+                column_name: _to_serializable(row.get(column_name))
+                for column_name in rows.columns
+            }
+            record_identifier = _to_string_or_empty(row.get(rows.columns[0], "unknown")) or "unknown"
+
             for rule_type, columns in rules.items():
                 for col_name in columns:
                     value = row.get(col_name)
@@ -203,20 +265,46 @@ class DataQualityMonitor:
                         is_violation = True
 
                     if is_violation:
+                        anomaly_id = str(uuid.uuid4())
+                        severity = "HIGH" if rule_type == "not_null" else "MEDIUM"
+
                         anomalies.append(
                             {
-                                "anomaly_id": str(uuid.uuid4()),
+                                "anomaly_id": anomaly_id,
                                 "source_table": target_table_name,
                                 "anomaly_table": target_table_name,
                                 "field_name": col_name,
-                                "record_identifier": str(row.get(rows.columns[0], "unknown")),
-                                "original_value": str(value),
+                                "record_identifier": record_identifier,
+                                "original_value": _to_string_or_empty(value),
                                 "detected_at": now,
-                                "severity": "HIGH" if rule_type == "not_null" else "MEDIUM",
+                                "severity": severity,
                                 "is_resolved": False,
                                 "resolution_action": None,
                                 "check_id": check_id,
                                 "execution_id": execution_id,
+                            }
+                        )
+
+                        dlq_rows.append(
+                            {
+                                "anomaly_id": anomaly_id,
+                                "execution_id": execution_id,
+                                "check_id": check_id,
+                                "source_table": target_table_name,
+                                "field_name": col_name,
+                                "record_identifier": record_identifier,
+                                "rule_type": rule_type,
+                                "severity": severity,
+                                "detected_at": now.isoformat(),
+                                "original_value": _to_string_or_empty(value),
+                                "corrected_value": "",
+                                "row_payload_json": json.dumps(row_payload, ensure_ascii=True),
+                                "is_corrected": "false",
+                                "corrected_by": "",
+                                "corrected_at": "",
+                                "replay_status": "pending",
+                                "replayed_at": "",
+                                "last_error": "",
                             }
                         )
 
@@ -237,4 +325,24 @@ class DataQualityMonitor:
                 anomalies,
             )
 
+        self._write_dlq_csv(target_table_name, execution_id, dlq_rows)
+
         logger.info(f"Logged {len(anomalies)} anomalies for {target_table_name}")
+
+    def _write_dlq_csv(self, target_table_name: str, execution_id: str, rows: list[dict]):
+        if not rows:
+            return
+
+        DLQ_BASE_DIR.mkdir(parents=True, exist_ok=True)
+        dlq_path = DLQ_BASE_DIR / f"{target_table_name}_{execution_id}_dlq.csv"
+
+        with dlq_path.open("w", encoding="utf-8", newline="") as dlq_file:
+            writer = csv.DictWriter(dlq_file, fieldnames=DLQ_HEADERS)
+            writer.writeheader()
+            writer.writerows(rows)
+
+        logger.info(
+            "DLQ CSV written: %s (%s rows)",
+            dlq_path,
+            len(rows),
+        )

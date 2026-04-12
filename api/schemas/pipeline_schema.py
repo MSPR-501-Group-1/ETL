@@ -24,3 +24,18 @@ class PipelineActionResponse(BaseModel):
     quality_check: Optional[QualityCheckResponse] = None
     # load endpoints / legacy
     message: Optional[str] = None
+
+
+class DLQReplayError(BaseModel):
+    anomaly_id: str
+    error: str
+
+
+class DLQReplayResponse(BaseModel):
+    source_table: str
+    execution_id: str
+    dlq_file: str
+    replayed: int
+    failed: int
+    message: Optional[str] = None
+    errors: Optional[list[DLQReplayError]] = None
