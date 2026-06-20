@@ -21,8 +21,7 @@ pipeline {
                     python3 -m venv .venv
                     . .venv/bin/activate
                     pip install --upgrade pip
-                    pip install --only-binary=:all: pandas numpy
-                    pip install --prefer-binary -r requirements.txt
+                    pip install --only-binary=pandas,numpy --prefer-binary -r requirements.txt
                     pip install flake8
                 '''
             }
