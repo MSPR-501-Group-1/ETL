@@ -86,7 +86,7 @@ pipeline {
             echo "Pipeline data-etl : FAILURE (build #${BUILD_NUMBER})"
         }
         always {
-            cleanWs()
+            deleteDir()
         }
     }
 }
