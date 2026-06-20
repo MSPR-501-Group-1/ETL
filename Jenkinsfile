@@ -21,7 +21,9 @@ pipeline {
                     python3 -m venv .venv
                     . .venv/bin/activate
                     pip install --upgrade pip
-                    pip install --only-binary=pandas,numpy --prefer-binary -r requirements.txt
+                    # pandas==2.2.0 n'a pas de wheel Python 3.13 — on patche en CI
+                    sed 's/pandas==2.2.0/pandas>=2.2.3/' requirements.txt > /tmp/requirements-ci.txt
+                    pip install --only-binary=pandas,numpy --prefer-binary -r /tmp/requirements-ci.txt
                     pip install flake8
                 '''
             }
