@@ -21,9 +21,11 @@ pipeline {
                     python3 -m venv .venv
                     . .venv/bin/activate
                     pip install --upgrade pip
-                    # pandas==2.2.0 n'a pas de wheel Python 3.13 — on patche en CI
-                    sed 's/pandas==2.2.0/pandas>=2.2.3/' requirements.txt > /tmp/requirements-ci.txt
-                    pip install --only-binary=pandas,numpy --prefer-binary -r /tmp/requirements-ci.txt
+                    # Patch versions sans wheel Python 3.13
+                    sed -e 's/pandas==2.2.0/pandas>=2.2.3/' \
+                        -e 's/psycopg2-binary==2.9.9/psycopg2-binary>=2.9.10/' \
+                        requirements.txt > /tmp/requirements-ci.txt
+                    pip install --only-binary=pandas,numpy,psycopg2_binary --prefer-binary -r /tmp/requirements-ci.txt
                     pip install flake8
                 '''
             }
