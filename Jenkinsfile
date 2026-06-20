@@ -24,8 +24,9 @@ pipeline {
                     # Patch versions sans wheel Python 3.13
                     sed -e 's/pandas==2.2.0/pandas>=2.2.3/' \
                         -e 's/psycopg2-binary==2.9.9/psycopg2-binary>=2.9.10/' \
+                        -e 's/pyarrow==15.0.0/pyarrow>=17.0.0/' \
                         requirements.txt > /tmp/requirements-ci.txt
-                    pip install --only-binary=pandas,numpy,psycopg2_binary --prefer-binary -r /tmp/requirements-ci.txt
+                    pip install --only-binary=pandas,numpy,psycopg2_binary,pyarrow --prefer-binary -r /tmp/requirements-ci.txt
                     pip install flake8
                 '''
             }
